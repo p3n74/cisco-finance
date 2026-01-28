@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "scheme": "cisco-finance",
+    "userInterfaceStyle": "automatic",
+    "orientation": "default",
+    "web": {
+      "bundler": "metro"
+    },
+    "name": "cisco-finance",
+    "slug": "cisco-finance",
+    "plugins": ["expo-font"],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}

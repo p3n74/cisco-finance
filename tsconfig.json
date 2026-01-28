@@ -1,0 +1,3 @@
+{
+  "extends": "@cisco-finance/config/tsconfig.base.json"
+}
