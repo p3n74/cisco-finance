@@ -149,15 +149,15 @@ function TeamRoute() {
                             {user.registeredUser.image ? (
                               <img 
                                 src={user.registeredUser.image} 
-                                alt={user.registeredUser.name} 
+                                alt={user.registeredUser.name ?? "User"} 
                                 className="h-8 w-8 rounded-full bg-muted object-cover" 
                               />
                             ) : (
                               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 font-bold text-primary">
-                                {user.registeredUser.name.charAt(0)}
+                                {(user.registeredUser.name ?? "U").charAt(0)}
                               </div>
                             )}
-                            <span className="font-medium">{user.registeredUser.name}</span>
+                            <span className="font-medium">{user.registeredUser.name ?? "Unknown User"}</span>
                           </div>
                         ) : (
                           <span className="text-muted-foreground italic">Not registered</span>

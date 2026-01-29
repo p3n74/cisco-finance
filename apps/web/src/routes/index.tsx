@@ -113,7 +113,7 @@ function SignedInHome() {
       <div className="mb-8">
         <p className="text-xs font-medium uppercase tracking-widest text-primary">Home</p>
         <h1 className="text-3xl font-bold tracking-tight">
-          Welcome back, {session?.user.name?.split(" ")[0]}
+          Welcome back, {session?.user.name?.split(" ")[0] ?? "User"}
         </h1>
         <p className="text-muted-foreground">
           Here's an overview of your financial activity
@@ -248,7 +248,7 @@ function SignedInHome() {
                     </span>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm">
-                        <span className="font-medium">{activity.user.name}</span>{" "}
+                        <span className="font-medium">{activity.user?.name ?? "Unknown User"}</span>{" "}
                         <span className="text-muted-foreground">{activity.description}</span>
                       </p>
                       <p className="text-xs text-muted-foreground">

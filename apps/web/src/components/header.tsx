@@ -85,7 +85,7 @@ export default function Header() {
             {session ? (
               <div className="flex items-center gap-3">
                 <span className="hidden text-sm text-muted-foreground sm:inline">
-                  {session.user.name}
+                  {session.user?.name ?? "User"}
                 </span>
                 <Button
                   variant="ghost"
