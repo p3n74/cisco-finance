@@ -162,6 +162,16 @@ model ReceiptSubmission {
   imageData       String         @db.Text // Base64 encoded image
   imageType       String         // MIME type (image/jpeg, image/png, etc.)
   notes           String?
+  // Reimbursement fields
+  needsReimbursement    Boolean   @default(false)
+  reimbursementMethod   String?   // "cash" or "online"
+  accountType           String?   // "gcash" or "bank"
+  accountNumber         String?   // GCash number or bank account number
+  accountName           String?   // Name on the account
+  qrCodeData            String?   @db.Text // Base64 encoded QR code image
+  qrCodeType            String?   // MIME type for QR code
+  contactInfo           String?   // Phone number or email
+  contactType           String?   // "phone" or "email"
   // Link to cashflow entry when bound
   cashflowEntryId String?
   cashflowEntry   CashflowEntry? @relation(fields: [cashflowEntryId], references: [id], onDelete: SetNull)

@@ -428,6 +428,18 @@ function ReceiptSubmissionForm() {
   const [imageType, setImageType] = useState<string>("");
   const [isSubmitted, setIsSubmitted] = useState(false);
 
+  // Reimbursement state
+  const [needsReimbursement, setNeedsReimbursement] = useState(false);
+  const [reimbursementMethod, setReimbursementMethod] = useState<"cash" | "online" | "">("");
+  const [accountType, setAccountType] = useState<"gcash" | "bank" | "">("");
+  const [accountNumber, setAccountNumber] = useState("");
+  const [accountName, setAccountName] = useState("");
+  const [qrCodePreview, setQrCodePreview] = useState<string | null>(null);
+  const [qrCodeData, setQrCodeData] = useState<string>("");
+  const [qrCodeType, setQrCodeType] = useState<string>("");
+  const [contactInfo, setContactInfo] = useState("");
+  const [contactType, setContactType] = useState<"phone" | "email" | "">("");
+
   const submitMutation = useMutation(
     trpc.receiptSubmission.submit.mutationOptions({
       onSuccess: () => {
@@ -451,12 +463,49 @@ function ReceiptSubmissionForm() {
         toast.error("Please upload a receipt image");
         return;
       }
+
+      // Validate reimbursement fields if needed
+      if (needsReimbursement) {
+        if (!reimbursementMethod) {
+          toast.error("Please select a reimbursement method");
+          return;
+        }
+        if (reimbursementMethod === "online") {
+          if (!accountType) {
+            toast.error("Please select an account type (GCash or Bank)");
+            return;
+          }
+          if (!accountNumber) {
+            toast.error("Please enter your account number");
+            return;
+          }
+          if (!accountName) {
+            toast.error("Please enter the name on the account");
+            return;
+          }
+        }
+        if (!contactType || !contactInfo) {
+          toast.error("Please provide your contact information");
+          return;
+        }
+      }
+
       await submitMutation.mutateAsync({
         submitterName: value.submitterName,
         purpose: value.purpose,
         imageData,
         imageType,
         notes: value.notes || undefined,
+        // Reimbursement fields
+        needsReimbursement,
+        reimbursementMethod: needsReimbursement ? reimbursementMethod || undefined : undefined,
+        accountType: needsReimbursement && reimbursementMethod === "online" ? accountType || undefined : undefined,
+        accountNumber: needsReimbursement && reimbursementMethod === "online" ? accountNumber || undefined : undefined,
+        accountName: needsReimbursement && reimbursementMethod === "online" ? accountName || undefined : undefined,
+        qrCodeData: needsReimbursement && reimbursementMethod === "online" ? qrCodeData || undefined : undefined,
+        qrCodeType: needsReimbursement && reimbursementMethod === "online" ? qrCodeType || undefined : undefined,
+        contactInfo: needsReimbursement ? contactInfo || undefined : undefined,
+        contactType: needsReimbursement ? contactType || undefined : undefined,
       });
     },
     validators: {
@@ -492,11 +541,46 @@ function ReceiptSubmissionForm() {
     reader.readAsDataURL(file);
   };
 
+  const handleQrCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please upload an image file");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("QR code image must be less than 5MB");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64 = reader.result as string;
+      setQrCodePreview(base64);
+      setQrCodeData(base64.split(",")[1] || "");
+      setQrCodeType(file.type);
+    };
+    reader.readAsDataURL(file);
+  };
+
   const resetForm = () => {
     setIsSubmitted(false);
     setImagePreview(null);
     setImageData("");
     setImageType("");
+    // Reset reimbursement state
+    setNeedsReimbursement(false);
+    setReimbursementMethod("");
+    setAccountType("");
+    setAccountNumber("");
+    setAccountName("");
+    setQrCodePreview(null);
+    setQrCodeData("");
+    setQrCodeType("");
+    setContactInfo("");
+    setContactType("");
     form.reset();
   };
 
@@ -594,6 +678,199 @@ function ReceiptSubmissionForm() {
           </div>
         )}
       </form.Field>
+
+      {/* Reimbursement Section */}
+      <div className="space-y-4 rounded-xl border border-border/50 bg-muted/20 p-4">
+        <div className="flex items-center gap-3">
+          <input
+            type="checkbox"
+            id="needsReimbursement"
+            checked={needsReimbursement}
+            onChange={(e) => {
+              setNeedsReimbursement(e.target.checked);
+              if (!e.target.checked) {
+                // Reset reimbursement fields when unchecked
+                setReimbursementMethod("");
+                setAccountType("");
+                setAccountNumber("");
+                setAccountName("");
+                setQrCodePreview(null);
+                setQrCodeData("");
+                setQrCodeType("");
+                setContactInfo("");
+                setContactType("");
+              }
+            }}
+            className="h-4 w-4 rounded border-border accent-primary"
+          />
+          <Label htmlFor="needsReimbursement" className="cursor-pointer font-medium">
+            I need reimbursement for this expense
+          </Label>
+        </div>
+
+        {needsReimbursement && (
+          <div className="space-y-4 pt-2">
+            {/* Reimbursement Method */}
+            <div className="space-y-2">
+              <Label>How would you like to be reimbursed?</Label>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="reimbursementMethod"
+                    value="cash"
+                    checked={reimbursementMethod === "cash"}
+                    onChange={() => {
+                      setReimbursementMethod("cash");
+                      // Clear online transfer fields
+                      setAccountType("");
+                      setAccountNumber("");
+                      setAccountName("");
+                      setQrCodePreview(null);
+                      setQrCodeData("");
+                      setQrCodeType("");
+                    }}
+                    className="h-4 w-4 accent-primary"
+                  />
+                  <span className="text-sm">Cash</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="reimbursementMethod"
+                    value="online"
+                    checked={reimbursementMethod === "online"}
+                    onChange={() => setReimbursementMethod("online")}
+                    className="h-4 w-4 accent-primary"
+                  />
+                  <span className="text-sm">Online Transfer</span>
+                </label>
+              </div>
+            </div>
+
+            {/* Online Transfer Options */}
+            {reimbursementMethod === "online" && (
+              <div className="space-y-4 rounded-lg border border-border/40 bg-background/50 p-3">
+                {/* Account Type */}
+                <div className="space-y-2">
+                  <Label>Account Type</Label>
+                  <div className="flex gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="accountType"
+                        value="gcash"
+                        checked={accountType === "gcash"}
+                        onChange={() => setAccountType("gcash")}
+                        className="h-4 w-4 accent-primary"
+                      />
+                      <span className="text-sm">GCash</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="accountType"
+                        value="bank"
+                        checked={accountType === "bank"}
+                        onChange={() => setAccountType("bank")}
+                        className="h-4 w-4 accent-primary"
+                      />
+                      <span className="text-sm">Bank Account</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Account Number */}
+                <div className="space-y-2">
+                  <Label htmlFor="accountNumber">
+                    {accountType === "gcash" ? "GCash Number" : "Account Number"}
+                  </Label>
+                  <Input
+                    id="accountNumber"
+                    placeholder={accountType === "gcash" ? "09XX XXX XXXX" : "Enter account number"}
+                    value={accountNumber}
+                    onChange={(e) => setAccountNumber(e.target.value)}
+                  />
+                </div>
+
+                {/* Account Name */}
+                <div className="space-y-2">
+                  <Label htmlFor="accountName">Name on Account</Label>
+                  <Input
+                    id="accountName"
+                    placeholder="Enter the name as it appears on the account"
+                    value={accountName}
+                    onChange={(e) => setAccountName(e.target.value)}
+                  />
+                </div>
+
+                {/* QR Code Upload */}
+                <div className="space-y-2">
+                  <Label htmlFor="qrCode">QR Code (Optional)</Label>
+                  <Input
+                    id="qrCode"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleQrCodeChange}
+                    className="cursor-pointer"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Upload your payment QR code for easier transfer
+                  </p>
+                  {qrCodePreview && (
+                    <div className="mt-2 overflow-hidden rounded-lg border border-border/50 bg-muted/30 p-2">
+                      <img
+                        src={qrCodePreview}
+                        alt="QR Code preview"
+                        className="mx-auto max-h-24 rounded object-contain"
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Contact Information */}
+            <div className="space-y-2">
+              <Label>Contact Information</Label>
+              <div className="flex gap-4 mb-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="contactType"
+                    value="phone"
+                    checked={contactType === "phone"}
+                    onChange={() => setContactType("phone")}
+                    className="h-4 w-4 accent-primary"
+                  />
+                  <span className="text-sm">Phone</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="contactType"
+                    value="email"
+                    checked={contactType === "email"}
+                    onChange={() => setContactType("email")}
+                    className="h-4 w-4 accent-primary"
+                  />
+                  <span className="text-sm">Email</span>
+                </label>
+              </div>
+              <Input
+                id="contactInfo"
+                placeholder={contactType === "email" ? "your.email@example.com" : "09XX XXX XXXX"}
+                value={contactInfo}
+                onChange={(e) => setContactInfo(e.target.value)}
+                type={contactType === "email" ? "email" : "tel"}
+              />
+              <p className="text-xs text-muted-foreground">
+                We'll use this to contact you about your reimbursement
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
 
       <form.Subscribe>
         {(state) => (

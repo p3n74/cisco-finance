@@ -50,6 +50,7 @@ function ReceiptsRoute() {
   const [bindingId, setBindingId] = useState<string | null>(null);
   const [selectedCashflowId, setSelectedCashflowId] = useState<string>("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [filterReimbursement, setFilterReimbursement] = useState<string>("all");
 
   const viewQueryOptions = trpc.receiptSubmission.getById.queryOptions(
     { id: viewingId ?? "" },
@@ -82,14 +83,18 @@ function ReceiptsRoute() {
   const submissions = submissionsQuery.data ?? [];
   const cashflowEntries = cashflowQuery.data?.filter((e) => e.isActive) ?? [];
 
-  const filteredSubmissions =
-    filterStatus === "all"
-      ? submissions
-      : filterStatus === "bound"
-        ? submissions.filter((s) => s.isBound)
-        : submissions.filter((s) => !s.isBound);
+  const filteredSubmissions = submissions.filter((s) => {
+    // Filter by binding status
+    if (filterStatus === "bound" && !s.isBound) return false;
+    if (filterStatus === "unbound" && s.isBound) return false;
+    // Filter by reimbursement
+    if (filterReimbursement === "needs" && !s.needsReimbursement) return false;
+    if (filterReimbursement === "none" && s.needsReimbursement) return false;
+    return true;
+  });
 
   const unboundCount = submissions.filter((s) => !s.isBound).length;
+  const reimbursementCount = submissions.filter((s) => s.needsReimbursement).length;
 
   const bindingSubmission = submissions.find((s) => s.id === bindingId);
 
@@ -104,27 +109,46 @@ function ReceiptsRoute() {
             Review and bind receipt submissions to cashflow transactions
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {unboundCount > 0 && (
             <span className="inline-flex items-center rounded-full bg-amber-500/10 px-3 py-1 text-sm font-medium text-amber-600 dark:text-amber-400">
               {unboundCount} unbound
+            </span>
+          )}
+          {reimbursementCount > 0 && (
+            <span className="inline-flex items-center rounded-full bg-blue-500/10 px-3 py-1 text-sm font-medium text-blue-600 dark:text-blue-400">
+              {reimbursementCount} need reimbursement
             </span>
           )}
         </div>
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-2">
-        <span className="text-sm text-muted-foreground">Filter:</span>
-        <select
-          className="flex h-9 rounded-xl border border-border/60 bg-background/60 backdrop-blur-sm px-4 py-2 text-sm outline-none transition-all focus:border-ring focus:ring-2 focus:ring-ring/30"
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value)}
-        >
-          <option value="all">All Submissions</option>
-          <option value="unbound">Unbound</option>
-          <option value="bound">Bound</option>
-        </select>
+      <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">Status:</span>
+          <select
+            className="flex h-9 rounded-xl border border-border/60 bg-background/60 backdrop-blur-sm px-4 py-2 text-sm outline-none transition-all focus:border-ring focus:ring-2 focus:ring-ring/30"
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+          >
+            <option value="all">All</option>
+            <option value="unbound">Unbound</option>
+            <option value="bound">Bound</option>
+          </select>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">Reimbursement:</span>
+          <select
+            className="flex h-9 rounded-xl border border-border/60 bg-background/60 backdrop-blur-sm px-4 py-2 text-sm outline-none transition-all focus:border-ring focus:ring-2 focus:ring-ring/30"
+            value={filterReimbursement}
+            onChange={(e) => setFilterReimbursement(e.target.value)}
+          >
+            <option value="all">All</option>
+            <option value="needs">Needs Reimbursement</option>
+            <option value="none">No Reimbursement</option>
+          </select>
+        </div>
       </div>
 
       {/* Submissions Table */}
@@ -174,15 +198,22 @@ function ReceiptsRoute() {
                       </td>
                       <td className="px-5 py-4 max-w-xs truncate">{submission.purpose}</td>
                       <td className="px-5 py-4">
-                        {submission.isBound ? (
-                          <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                            Bound
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center rounded-full bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-600 dark:text-amber-400">
-                            Unbound
-                          </span>
-                        )}
+                        <div className="flex flex-col gap-1">
+                          {submission.isBound ? (
+                            <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 w-fit">
+                              Bound
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center rounded-full bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-600 dark:text-amber-400 w-fit">
+                              Unbound
+                            </span>
+                          )}
+                          {submission.needsReimbursement && (
+                            <span className="inline-flex items-center rounded-full bg-blue-500/10 px-2.5 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 w-fit">
+                              Needs Reimbursement
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-5 py-4">
                         {submission.cashflowEntry ? (
@@ -348,15 +379,22 @@ function ReceiptsRoute() {
                 )}
                 <div>
                   <p className="text-xs font-medium text-muted-foreground">Status</p>
-                  {viewQuery.data.isBound ? (
-                    <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                      Bound
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center rounded-full bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-600 dark:text-amber-400">
-                      Unbound
-                    </span>
-                  )}
+                  <div className="flex flex-wrap gap-1">
+                    {viewQuery.data.isBound ? (
+                      <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                        Bound
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center rounded-full bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-600 dark:text-amber-400">
+                        Unbound
+                      </span>
+                    )}
+                    {viewQuery.data.needsReimbursement && (
+                      <span className="inline-flex items-center rounded-full bg-blue-500/10 px-2.5 py-1 text-xs font-medium text-blue-600 dark:text-blue-400">
+                        Needs Reimbursement
+                      </span>
+                    )}
+                  </div>
                 </div>
                 {viewQuery.data.cashflowEntry && (
                   <div>
@@ -368,6 +406,61 @@ function ReceiptsRoute() {
                   </div>
                 )}
               </div>
+
+              {/* Reimbursement Details */}
+              {viewQuery.data.needsReimbursement && (
+                <div className="rounded-xl border border-blue-500/30 bg-blue-500/5 p-4">
+                  <p className="text-sm font-semibold text-blue-600 dark:text-blue-400 mb-3">
+                    Reimbursement Details
+                  </p>
+                  <div className="grid gap-3 sm:grid-cols-2 text-sm">
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground">Method</p>
+                      <p className="font-medium capitalize">{viewQuery.data.reimbursementMethod}</p>
+                    </div>
+                    {viewQuery.data.reimbursementMethod === "online" && (
+                      <>
+                        <div>
+                          <p className="text-xs font-medium text-muted-foreground">Account Type</p>
+                          <p className="font-medium">
+                            {viewQuery.data.accountType === "gcash" ? "GCash" : "Bank Account"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-muted-foreground">
+                            {viewQuery.data.accountType === "gcash" ? "GCash Number" : "Account Number"}
+                          </p>
+                          <p className="font-medium font-mono">{viewQuery.data.accountNumber}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-muted-foreground">Account Name</p>
+                          <p className="font-medium">{viewQuery.data.accountName}</p>
+                        </div>
+                      </>
+                    )}
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground">
+                        Contact ({viewQuery.data.contactType === "email" ? "Email" : "Phone"})
+                      </p>
+                      <p className="font-medium">{viewQuery.data.contactInfo}</p>
+                    </div>
+                  </div>
+                  {/* QR Code */}
+                  {viewQuery.data.qrCodeData && viewQuery.data.qrCodeType && (
+                    <div className="mt-4 pt-3 border-t border-blue-500/20">
+                      <p className="text-xs font-medium text-muted-foreground mb-2">Payment QR Code</p>
+                      <div className="rounded-lg border border-border/60 overflow-hidden bg-white p-2 inline-block">
+                        <img
+                          src={`data:${viewQuery.data.qrCodeType};base64,${viewQuery.data.qrCodeData}`}
+                          alt="Payment QR Code"
+                          className="max-h-40 object-contain"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div>
                 <p className="text-xs font-medium text-muted-foreground mb-2">Receipt Image</p>
                 <div className="rounded-lg border border-border/60 overflow-hidden bg-muted/20">

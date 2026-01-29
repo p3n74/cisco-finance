@@ -134,6 +134,16 @@ export const appRouter = router({
           imageData: z.string().min(1, "Please upload a receipt image"),
           imageType: z.string().min(1, "Image type is required"),
           notes: z.string().optional(),
+          // Reimbursement fields
+          needsReimbursement: z.boolean().optional().default(false),
+          reimbursementMethod: z.enum(["cash", "online"]).optional(),
+          accountType: z.enum(["gcash", "bank"]).optional(),
+          accountNumber: z.string().optional(),
+          accountName: z.string().optional(),
+          qrCodeData: z.string().optional(),
+          qrCodeType: z.string().optional(),
+          contactInfo: z.string().optional(),
+          contactType: z.enum(["phone", "email"]).optional(),
         }),
       )
       .mutation(async ({ ctx, input }) => {
@@ -144,6 +154,16 @@ export const appRouter = router({
             imageData: input.imageData,
             imageType: input.imageType,
             notes: input.notes,
+            // Reimbursement fields
+            needsReimbursement: input.needsReimbursement ?? false,
+            reimbursementMethod: input.reimbursementMethod,
+            accountType: input.accountType,
+            accountNumber: input.accountNumber,
+            accountName: input.accountName,
+            qrCodeData: input.qrCodeData,
+            qrCodeType: input.qrCodeType,
+            contactInfo: input.contactInfo,
+            contactType: input.contactType,
           },
         });
         return { id: submission.id, message: "Receipt submitted successfully" };
@@ -158,6 +178,15 @@ export const appRouter = router({
           purpose: true,
           imageType: true,
           notes: true,
+          // Reimbursement fields
+          needsReimbursement: true,
+          reimbursementMethod: true,
+          accountType: true,
+          accountNumber: true,
+          accountName: true,
+          contactInfo: true,
+          contactType: true,
+          // Binding fields
           cashflowEntryId: true,
           boundAt: true,
           boundBy: true,
