@@ -6,13 +6,14 @@ model User {
   image           String?
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
+  // role            Role? // Removed for now to fix build
   sessions        Session[]
   accounts        Account[]
-  accountEntries  AccountEntry[]
-  cashflowEntries CashflowEntry[]
-  receipts        Receipt[]
+  createdAccountEntries  AccountEntry[]
+  createdCashflowEntries CashflowEntry[]
+  uploadedReceipts       Receipt[]
   activityLogs    ActivityLog[]
-  budgetProjects  BudgetProject[]
+  createdBudgetProjects  BudgetProject[]
 
   @@unique([email])
   @@map("user")
@@ -246,6 +247,8 @@ model ReceiptSubmission {
   cashflowEntry   CashflowEntry? @relation(fields: [cashflowEntryId], references: [id], onDelete: SetNull)
   boundAt         DateTime?
   boundBy         String?
+  endorsedAt      DateTime?
+  endorsedBy      String?
   reimbursedAt    DateTime?
   reimbursedBy    String?
   createdAt       DateTime       @default(now())

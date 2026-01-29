@@ -289,6 +289,8 @@ export const appRouter = router({
           cashflowEntryId: true,
           boundAt: true,
           boundBy: true,
+          endorsedAt: true,
+          endorsedBy: true,
           reimbursedAt: true,
           reimbursedBy: true,
           createdAt: true,
@@ -556,6 +558,15 @@ export const appRouter = router({
 
         const treasurerName = treasurerUser?.name || "Treasurer";
 
+        // Update database record
+        await ctx.prisma.receiptSubmission.update({
+          where: { id: input.id },
+          data: {
+            endorsedAt: new Date(),
+            endorsedBy: ctx.session.user.id,
+          },
+        });
+
         // Prepare attachments
         const attachments = [];
         let qrCodeHtml = "";
@@ -660,7 +671,19 @@ export const appRouter = router({
           throw new Error("Only the Treasurer can mark receipts as reimbursed");
         }
 
-        const submission = await ctx.prisma.receiptSubmission.update({
+        const submission = await ctx.prisma.receiptSubmission.findUnique({
+          where: { id: input.id },
+        });
+
+        if (!submission) {
+          throw new Error("Receipt submission not found");
+        }
+
+        if (!submission.endorsedAt) {
+          throw new Error("This receipt has not been endorsed yet. It must be endorsed by the Auditor or VP Finance first.");
+        }
+
+        const updatedSubmission = await ctx.prisma.receiptSubmission.update({
           where: { id: input.id },
           data: {
             reimbursedAt: new Date(),
@@ -682,7 +705,7 @@ export const appRouter = router({
 
           await sendEmail(
             auditorAuth.email,
-            `[CISCO FINANCE] Reimbursement Processed - ${submission.submitterName}`,
+            `[CISCO FINANCE] Reimbursement Processed - ${updatedSubmission.submitterName}`,
             `
               <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
                 <div style="background-color: #1a365d; color: white; padding: 20px; text-align: center;">
@@ -691,11 +714,11 @@ export const appRouter = router({
                 
                 <div style="padding: 30px; color: #333; line-height: 1.6;">
                   <p style="font-size: 16px;">Hello <strong>${auditorName}</strong>,</p>
-                  <p>The reimbursement for <strong>${submission.submitterName}</strong> has been marked as <strong>COMPLETED</strong> by the Treasurer.</p>
+                  <p>The reimbursement for <strong>${updatedSubmission.submitterName}</strong> has been marked as <strong>COMPLETED</strong> by the Treasurer.</p>
                   
                   <div style="background-color: #f3e8ff; border-left: 4px solid #805ad5; padding: 20px; margin: 25px 0;">
                     <h3 style="margin-top: 0; color: #553c9a; font-size: 18px;">Transaction Completed</h3>
-                    <p style="margin: 5px 0;"><strong>Purpose:</strong> ${submission.purpose}</p>
+                    <p style="margin: 5px 0;"><strong>Purpose:</strong> ${updatedSubmission.purpose}</p>
                     <p style="margin: 5px 0;"><strong>Processed By:</strong> ${ctx.session.user.name}</p>
                     <p style="margin: 5px 0;"><strong>Date:</strong> ${new Date().toLocaleDateString()}</p>
                   </div>
@@ -718,9 +741,9 @@ export const appRouter = router({
           ctx.session.user.id,
           "reimbursed",
           "receipt_submission",
-          `marked receipt from ${submission.submitterName} as reimbursed`,
-          submission.id,
-          { purpose: submission.purpose },
+          `marked receipt from ${updatedSubmission.submitterName} as reimbursed`,
+          updatedSubmission.id,
+          { purpose: updatedSubmission.purpose },
           ctx.ws
         );
 
@@ -728,7 +751,7 @@ export const appRouter = router({
         ctx.ws?.emitToAll({
           event: WS_EVENTS.RECEIPT_UPDATED,
           action: "updated",
-          entityId: submission.id,
+          entityId: updatedSubmission.id,
         });
 
         return { success: true };

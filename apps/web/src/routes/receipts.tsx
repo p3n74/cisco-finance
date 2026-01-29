@@ -131,7 +131,8 @@ function ReceiptsRoute() {
   );
 
   const unboundCount = submissions.filter((s) => !s.isBound).length;
-  const reimbursementCount = submissions.filter((s) => s.needsReimbursement && !s.reimbursedAt).length;
+  const pendingEndorsementCount = submissions.filter((s) => s.needsReimbursement && !s.endorsedAt && !s.reimbursedAt).length;
+  const pendingPaymentCount = submissions.filter((s) => s.needsReimbursement && s.endorsedAt && !s.reimbursedAt).length;
 
   const bindingSubmission = submissions.find((s) => s.id === bindingId);
 
@@ -146,15 +147,20 @@ function ReceiptsRoute() {
             Review and bind receipt submissions to cashflow transactions
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap text-xs font-medium">
           {unboundCount > 0 && (
-            <span className="inline-flex items-center rounded-full bg-amber-500/10 px-3 py-1 text-sm font-medium text-amber-600 dark:text-amber-400">
+            <span className="inline-flex items-center rounded-full bg-amber-500/10 px-3 py-1 text-amber-600 dark:text-amber-400">
               {unboundCount} unbound
             </span>
           )}
-          {reimbursementCount > 0 && (
-            <span className="inline-flex items-center rounded-full bg-blue-500/10 px-3 py-1 text-sm font-medium text-blue-600 dark:text-blue-400">
-              {reimbursementCount} need reimbursement
+          {pendingEndorsementCount > 0 && (
+            <span className="inline-flex items-center rounded-full bg-blue-500/10 px-3 py-1 text-blue-600 dark:text-blue-400">
+              {pendingEndorsementCount} pending endorsement
+            </span>
+          )}
+          {pendingPaymentCount > 0 && (
+            <span className="inline-flex items-center rounded-full bg-purple-500/10 px-3 py-1 text-purple-600 dark:text-purple-400">
+              {pendingPaymentCount} pending payment
             </span>
           )}
         </div>
@@ -249,8 +255,12 @@ function ReceiptsRoute() {
                             <span className="inline-flex items-center rounded-full bg-purple-500/10 px-2.5 py-1 text-xs font-medium text-purple-600 dark:text-purple-400 w-fit">
                               Reimbursed
                             </span>
-                          ) : submission.needsReimbursement ? (
+                          ) : submission.endorsedAt ? (
                             <span className="inline-flex items-center rounded-full bg-blue-500/10 px-2.5 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 w-fit">
+                              Endorsed
+                            </span>
+                          ) : submission.needsReimbursement ? (
+                            <span className="inline-flex items-center rounded-full bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-600 dark:text-amber-400 w-fit">
                               Needs Reimbursement
                             </span>
                           ) : null}
@@ -434,8 +444,12 @@ function ReceiptsRoute() {
                       <span className="inline-flex items-center rounded-full bg-purple-500/10 px-2.5 py-1 text-xs font-medium text-purple-600 dark:text-purple-400">
                         Reimbursed
                       </span>
-                    ) : viewQuery.data.needsReimbursement ? (
+                    ) : viewQuery.data.endorsedAt ? (
                       <span className="inline-flex items-center rounded-full bg-blue-500/10 px-2.5 py-1 text-xs font-medium text-blue-600 dark:text-blue-400">
+                        Endorsed
+                      </span>
+                    ) : viewQuery.data.needsReimbursement ? (
+                      <span className="inline-flex items-center rounded-full bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-600 dark:text-amber-400">
                         Needs Reimbursement
                       </span>
                     ) : null}
@@ -547,24 +561,26 @@ function ReceiptsRoute() {
                 </div>
               )}
               
-              {/* Endorse Button */}
+              {/* Endorsement and Reimbursement Buttons */}
               {viewQuery.data.needsReimbursement && !viewQuery.data.reimbursedAt && (
                 <div className="flex gap-2 pt-4 border-t">
-                  <Button
-                    className="flex-1 bg-green-600 hover:bg-green-700 text-white"
-                    onClick={() => setEndorsingId(viewQuery.data!.id)}
-                  >
-                    Endorse for Reimbursement
-                  </Button>
-                  
-                  {userRole === "TREASURER" && (
+                  {!viewQuery.data.endorsedAt ? (
                     <Button
-                      className="flex-1 bg-purple-600 hover:bg-purple-700 text-white"
-                      onClick={() => markAsReimbursedMutation.mutate({ id: viewQuery.data!.id })}
-                      disabled={markAsReimbursedMutation.isPending}
+                      className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                      onClick={() => setEndorsingId(viewQuery.data!.id)}
                     >
-                      {markAsReimbursedMutation.isPending ? "Marking..." : "Mark as Reimbursed"}
+                      Endorse for Reimbursement
                     </Button>
+                  ) : (
+                    userRole === "TREASURER" && (
+                      <Button
+                        className="flex-1 bg-purple-600 hover:bg-purple-700 text-white"
+                        onClick={() => markAsReimbursedMutation.mutate({ id: viewQuery.data!.id })}
+                        disabled={markAsReimbursedMutation.isPending}
+                      >
+                        {markAsReimbursedMutation.isPending ? "Marking..." : "Mark as Reimbursed"}
+                      </Button>
+                    )
                   )}
                 </div>
               )}
