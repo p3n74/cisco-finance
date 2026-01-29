@@ -8,6 +8,24 @@ import { env } from "@cisco-finance/env/server";
 
 const ACCOUNT_OPTIONS = ["GCash", "GoTyme", "Cash", "BPI"] as const;
 
+// Helper to get the VP Finance's first name for email sender display
+async function getSenderName(prisma: Context["prisma"]) {
+  const vpAuth = await prisma.authorizedUser.findFirst({
+    where: { role: "VP_FINANCE" },
+  });
+  if (vpAuth) {
+    const vpUser = await prisma.user.findUnique({
+      where: { email: vpAuth.email },
+      select: { name: true },
+    });
+    if (vpUser) {
+      const firstName = vpUser.name.split(" ")[0];
+      return `${firstName} from CISCO`;
+    }
+  }
+  return "CISCO Finance";
+}
+
 // Helper function to create activity logs and emit WebSocket event
 async function logActivity(
   prisma: Context["prisma"],
@@ -210,6 +228,7 @@ export const appRouter = router({
             });
 
             const auditorName = auditorUser?.name || "Auditor";
+            const senderName = await getSenderName(ctx.prisma);
 
             await sendEmail(
               auditorAuth.email,
@@ -266,7 +285,9 @@ export const appRouter = router({
                     <p>This is an automated notification from the CISCO Finance System.</p>
                   </div>
                 </div>
-              `
+              `,
+              undefined,
+              senderName
             );
           }
         }
@@ -574,6 +595,7 @@ export const appRouter = router({
         });
 
         const treasurerName = treasurerUser?.name || "Treasurer";
+        const senderName = await getSenderName(ctx.prisma);
 
         // Update database record
         await ctx.prisma.receiptSubmission.update({
@@ -664,7 +686,8 @@ export const appRouter = router({
               </div>
             </div>
           `,
-          attachments
+          attachments,
+          senderName
         );
 
         await logActivity(
@@ -708,6 +731,8 @@ export const appRouter = router({
           },
         });
 
+        const senderName = await getSenderName(ctx.prisma);
+
         // Notify Auditor
         const auditorAuth = await ctx.prisma.authorizedUser.findFirst({
           where: { role: "AUDITOR" },
@@ -749,7 +774,9 @@ export const appRouter = router({
                   <p>This is an automated notification from the CISCO Finance System.</p>
                 </div>
               </div>
-            `
+            `,
+            undefined,
+            senderName
           );
         }
 
@@ -840,13 +867,15 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const entry = await ctx.prisma.accountEntry.create({
           data: {
-            userId: ctx.session.user.id,
             date: input.date,
             description: input.description,
             account: input.account,
             amount: input.amount,
             currency: input.currency ?? "PHP",
             notes: input.notes,
+            user: {
+              connect: { id: ctx.session.user.id }
+            }
           },
         });
 
@@ -1330,11 +1359,10 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ ctx, input }) => {
-        // Verify project belongs to user
+        // Verify project exists
         const project = await ctx.prisma.budgetProject.findFirst({
           where: {
             id: input.budgetProjectId,
-            userId: ctx.session.user.id,
           },
         });
 
@@ -1378,15 +1406,12 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ ctx, input }) => {
-        // Verify item belongs to user's project
+        // Verify item exists
         const item = await ctx.prisma.budgetItem.findFirst({
           where: { id: input.id },
-          include: {
-            budgetProject: { select: { userId: true } },
-          },
         });
 
-        if (!item || item.budgetProject.userId !== ctx.session.user.id) {
+        if (!item) {
           throw new Error("Item not found");
         }
 
@@ -1401,16 +1426,16 @@ export const appRouter = router({
     delete: protectedProcedure
       .input(z.object({ id: z.string() }))
       .mutation(async ({ ctx, input }) => {
-        // Verify item belongs to user's project
+        // Verify item exists
         const item = await ctx.prisma.budgetItem.findFirst({
           where: { id: input.id },
           include: {
-            budgetProject: { select: { userId: true, name: true } },
+            budgetProject: { select: { name: true } },
             expenses: { select: { id: true } },
           },
         });
 
-        if (!item || item.budgetProject.userId !== ctx.session.user.id) {
+        if (!item) {
           throw new Error("Item not found");
         }
 
@@ -1447,23 +1472,22 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ ctx, input }) => {
-        // Verify budget item belongs to user
+        // Verify budget item exists
         const item = await ctx.prisma.budgetItem.findFirst({
           where: { id: input.budgetItemId },
           include: {
-            budgetProject: { select: { userId: true, name: true } },
+            budgetProject: { select: { name: true } },
           },
         });
 
-        if (!item || item.budgetProject.userId !== ctx.session.user.id) {
+        if (!item) {
           throw new Error("Budget item not found");
         }
 
-        // Verify cashflow entry belongs to user
+        // Verify cashflow entry exists
         const cashflow = await ctx.prisma.cashflowEntry.findFirst({
           where: {
             id: input.cashflowEntryId,
-            userId: ctx.session.user.id,
           },
         });
 
@@ -1496,20 +1520,16 @@ export const appRouter = router({
     unlinkExpense: protectedProcedure
       .input(z.object({ id: z.string() }))
       .mutation(async ({ ctx, input }) => {
-        // Verify expense belongs to user's project
+        // Verify expense exists
         const expense = await ctx.prisma.budgetItemExpense.findFirst({
           where: { id: input.id },
           include: {
-            budgetItem: {
-              include: {
-                budgetProject: { select: { userId: true } },
-              },
-            },
+            budgetItem: true,
             cashflowEntry: { select: { description: true } },
           },
         });
 
-        if (!expense || expense.budgetItem.budgetProject.userId !== ctx.session.user.id) {
+        if (!expense) {
           throw new Error("Expense link not found");
         }
 
@@ -1545,7 +1565,6 @@ export const appRouter = router({
         // Get all active cashflow entries not already linked to this item
         const cashflows = await ctx.prisma.cashflowEntry.findMany({
           where: {
-            userId: ctx.session.user.id,
             isActive: true,
             id: { notIn: linkedIds },
           },

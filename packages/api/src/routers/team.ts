@@ -4,6 +4,7 @@ import { protectedProcedure, router } from "../index";
 import { WS_EVENTS } from "../context";
 import { sendEmail } from "../services/email";
 import { env } from "@cisco-finance/env/server";
+import type { Context } from "../context";
 
 const ROLES = ["VP_FINANCE", "AUDITOR", "TREASURER", "WAYS_AND_MEANS"] as const;
 
@@ -13,6 +14,24 @@ const ROLE_LABELS: Record<string, string> = {
   TREASURER: "Treasurer",
   WAYS_AND_MEANS: "Ways and Means Officer",
 };
+
+// Helper to get the VP Finance's first name for email sender display
+async function getSenderName(prisma: Context["prisma"]) {
+  const vpAuth = await prisma.authorizedUser.findFirst({
+    where: { role: "VP_FINANCE" },
+  });
+  if (vpAuth) {
+    const vpUser = await prisma.user.findUnique({
+      where: { email: vpAuth.email },
+      select: { name: true },
+    });
+    if (vpUser) {
+      const firstName = vpUser.name.split(" ")[0];
+      return `${firstName} from CISCO`;
+    }
+  }
+  return "CISCO Finance";
+}
 
 // Middleware to check if user is VP Finance
 const vpFinanceProcedure = protectedProcedure.use(({ ctx, next }) => {
@@ -80,6 +99,8 @@ export const teamRouter = router({
         },
       });
 
+      const senderName = await getSenderName(ctx.prisma);
+
       // Send Invitation Email
       await sendEmail(
         input.email,
@@ -110,7 +131,9 @@ export const teamRouter = router({
               <p>If you were not expecting this invitation, please ignore this email.</p>
             </div>
           </div>
-        `
+        `,
+        undefined,
+        senderName
       );
 
       // Log activity

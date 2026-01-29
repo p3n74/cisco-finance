@@ -3,6 +3,7 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { authClient } from "@/lib/auth-client";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -814,26 +815,57 @@ function BudgetsRoute() {
           </DialogHeader>
           <div className="mt-4 space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="select-cashflow">Select Cashflow Entry</Label>
-              <select
-                id="select-cashflow"
-                className="flex h-10 w-full rounded-xl border border-border/60 bg-background/60 backdrop-blur-sm px-4 py-2 text-sm outline-none transition-all focus:border-ring focus:ring-2 focus:ring-ring/30"
-                value={selectedCashflowId}
-                onChange={(e) => setSelectedCashflowId(e.target.value)}
-              >
-                <option value="">Choose a cashflow entry...</option>
-                {unlinkedCashflows.map((cf) => (
-                  <option key={cf.id} value={cf.id}>
-                    {formatDate(cf.date)} — {cf.description} ({formatCurrency(Math.abs(cf.amount))})
-                    {cf.accountEntry && ` via ${cf.accountEntry.account}`}
-                  </option>
-                ))}
-              </select>
-              {unlinkedCashflows.length === 0 && !unlinkedCashflowsQuery.isLoading && (
-                <p className="text-xs text-muted-foreground">
-                  No available cashflow entries. Create a verified transaction first.
-                </p>
-              )}
+              <Label>Select Cashflow Entry</Label>
+              <div className="border border-border/60 rounded-xl overflow-hidden bg-background/40 backdrop-blur-sm">
+                <div className="max-h-[280px] overflow-y-auto custom-scrollbar">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-muted/50 sticky top-0 border-b border-border/50 z-10">
+                      <tr>
+                        <th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase tracking-wider">Date</th>
+                        <th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase tracking-wider">Description</th>
+                        <th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase tracking-wider">Account</th>
+                        <th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase tracking-wider text-right">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/30">
+                      {unlinkedCashflows.length === 0 && !unlinkedCashflowsQuery.isLoading ? (
+                        <tr>
+                          <td colSpan={4} className="px-3 py-8 text-center text-muted-foreground">
+                            No available cashflow entries. Create a verified transaction first.
+                          </td>
+                        </tr>
+                      ) : (
+                        unlinkedCashflows.map((cf) => (
+                          <tr 
+                            key={cf.id} 
+                            onClick={() => setSelectedCashflowId(cf.id)}
+                            className={cn(
+                              "cursor-pointer transition-colors hover:bg-primary/5",
+                              selectedCashflowId === cf.id ? "bg-primary/10 hover:bg-primary/15" : ""
+                            )}
+                          >
+                            <td className="px-3 py-3 tabular-nums text-muted-foreground whitespace-nowrap">
+                              {formatDate(cf.date)}
+                            </td>
+                            <td className="px-3 py-3 font-medium min-w-[140px]">
+                              {cf.description}
+                            </td>
+                            <td className="px-3 py-3 text-muted-foreground">
+                              {cf.accountEntry?.account || "Manual"}
+                            </td>
+                            <td className={cn(
+                              "px-3 py-3 text-right font-semibold tabular-nums whitespace-nowrap",
+                              cf.amount >= 0 ? "text-emerald-500" : "text-rose-500"
+                            )}>
+                              {formatCurrency(Math.abs(cf.amount))}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
                       <DialogFooter>
                         <DialogClose asChild>

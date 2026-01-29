@@ -4,6 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { authClient } from "@/lib/auth-client";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -351,26 +352,53 @@ function ReceiptsRoute() {
               </div>
             )}
             <div className="space-y-2">
-              <Label htmlFor="cashflowEntry">Select Transaction</Label>
-              <select
-                id="cashflowEntry"
-                className="flex h-10 w-full rounded-xl border border-border/60 bg-background/60 backdrop-blur-sm px-4 py-2 text-sm outline-none transition-all focus:border-ring focus:ring-2 focus:ring-ring/30"
-                value={selectedCashflowId}
-                onChange={(e) => setSelectedCashflowId(e.target.value)}
-              >
-                <option value="">Choose a transaction...</option>
-                {cashflowEntries.map((entry) => (
-                  <option key={entry.id} value={entry.id}>
-                    {new Date(entry.date).toLocaleDateString()} — {entry.description} (
-                    {formatCurrency(entry.amount)})
-                  </option>
-                ))}
-              </select>
-              {cashflowEntries.length === 0 && (
-                <p className="text-xs text-muted-foreground">
-                  No cashflow transactions available. Create one from the Dashboard first.
-                </p>
-              )}
+              <Label>Select Transaction</Label>
+              <div className="border border-border/60 rounded-xl overflow-hidden bg-background/40 backdrop-blur-sm">
+                <div className="max-h-[280px] overflow-y-auto custom-scrollbar">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-muted/50 sticky top-0 border-b border-border/50 z-10">
+                      <tr>
+                        <th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase tracking-wider">Date</th>
+                        <th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase tracking-wider">Description</th>
+                        <th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase tracking-wider text-right">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/30">
+                      {cashflowEntries.length === 0 ? (
+                        <tr>
+                          <td colSpan={3} className="px-3 py-8 text-center text-muted-foreground">
+                            No cashflow transactions available. Create one from the Dashboard first.
+                          </td>
+                        </tr>
+                      ) : (
+                        cashflowEntries.map((entry) => (
+                          <tr 
+                            key={entry.id} 
+                            onClick={() => setSelectedCashflowId(entry.id)}
+                            className={cn(
+                              "cursor-pointer transition-colors hover:bg-primary/5",
+                              selectedCashflowId === entry.id ? "bg-primary/10 hover:bg-primary/15" : ""
+                            )}
+                          >
+                            <td className="px-3 py-3 tabular-nums text-muted-foreground whitespace-nowrap">
+                              {new Date(entry.date).toLocaleDateString()}
+                            </td>
+                            <td className="px-3 py-3 font-medium min-w-[180px]">
+                              {entry.description}
+                            </td>
+                            <td className={cn(
+                              "px-3 py-3 text-right font-semibold tabular-nums whitespace-nowrap",
+                              entry.amount >= 0 ? "text-emerald-500" : "text-rose-500"
+                            )}>
+                              {formatCurrency(entry.amount)}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </div>
           <DialogFooter className="mt-6">

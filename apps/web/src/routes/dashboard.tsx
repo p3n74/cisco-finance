@@ -3,6 +3,7 @@ import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { authClient } from "@/lib/auth-client";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -260,26 +261,53 @@ function RouteComponent() {
                 }}
               >
                 <div className="space-y-2">
-                  <Label htmlFor="accountEntry">Select Transaction</Label>
-                  <select
-                    id="accountEntry"
-                    className="flex h-10 w-full rounded-xl border border-border/60 bg-background/60 backdrop-blur-sm px-4 py-2 text-sm outline-none transition-all focus:border-ring focus:ring-2 focus:ring-ring/30"
-                    value={formState.accountEntryId}
-                    onChange={(e) => setFormState({ ...formState, accountEntryId: e.target.value })}
-                    required
-                  >
-                    <option value="">Choose a transaction...</option>
-                    {unverifiedEntries.map((e) => (
-                      <option key={e.id} value={e.id}>
-                        {new Date(e.date).toLocaleDateString()} — {e.account} — {e.description} ({formatCurrency(e.amount)})
-                      </option>
-                    ))}
-                  </select>
-                  {unverifiedEntries.length === 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      No unverified transactions. Add transactions in the Accounts page first.
-                    </p>
-                  )}
+                  <Label>Select Transaction</Label>
+                  <div className="border border-border/60 rounded-xl overflow-hidden bg-background/40 backdrop-blur-sm">
+                    <div className="max-h-[240px] overflow-y-auto custom-scrollbar">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead className="bg-muted/50 sticky top-0 border-b border-border/50 z-10">
+                          <tr>
+                            <th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase tracking-wider">Date</th>
+                            <th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase tracking-wider">Account</th>
+                            <th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase tracking-wider">Description</th>
+                            <th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase tracking-wider text-right">Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border/30">
+                          {unverifiedEntries.length === 0 ? (
+                            <tr>
+                              <td colSpan={4} className="px-3 py-8 text-center text-muted-foreground">
+                                No unverified transactions. Add transactions in the Accounts page first.
+                              </td>
+                            </tr>
+                          ) : (
+                            unverifiedEntries.map((e) => (
+                              <tr 
+                                key={e.id} 
+                                onClick={() => setFormState({ ...formState, accountEntryId: e.id })}
+                                className={cn(
+                                  "cursor-pointer transition-colors hover:bg-primary/5",
+                                  formState.accountEntryId === e.id ? "bg-primary/10 hover:bg-primary/15" : ""
+                                )}
+                              >
+                                <td className="px-3 py-3 tabular-nums text-muted-foreground whitespace-nowrap">
+                                  {new Date(e.date).toLocaleDateString()}
+                                </td>
+                                <td className="px-3 py-3 font-medium">{e.account}</td>
+                                <td className="px-3 py-3 min-w-[120px]">{e.description}</td>
+                                <td className={cn(
+                                  "px-3 py-3 text-right font-semibold tabular-nums whitespace-nowrap",
+                                  e.amount >= 0 ? "text-emerald-500" : "text-rose-500"
+                                )}>
+                                  {formatCurrency(e.amount)}
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
 
                 {selectedAccountEntry && (
@@ -779,25 +807,46 @@ function RouteComponent() {
             {attachMode === "select" ? (
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="selectReceipt">Select Unbound Receipt</Label>
-                  <select
-                    id="selectReceipt"
-                    className="flex h-10 w-full rounded-xl border border-border/60 bg-background/60 backdrop-blur-sm px-4 py-2 text-sm outline-none transition-all focus:border-ring focus:ring-2 focus:ring-ring/30"
-                    value={selectedReceiptId}
-                    onChange={(e) => setSelectedReceiptId(e.target.value)}
-                  >
-                    <option value="">Choose a receipt...</option>
-                    {unboundReceipts.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {new Date(r.createdAt).toLocaleDateString()} — {r.submitterName} — {r.purpose}
-                      </option>
-                    ))}
-                  </select>
-                  {unboundReceipts.length === 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      No unbound receipts available. Upload a new one instead.
-                    </p>
-                  )}
+                  <Label>Select Unbound Receipt</Label>
+                  <div className="border border-border/60 rounded-xl overflow-hidden bg-background/40 backdrop-blur-sm">
+                    <div className="max-h-[240px] overflow-y-auto custom-scrollbar">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead className="bg-muted/50 sticky top-0 border-b border-border/50 z-10">
+                          <tr>
+                            <th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase tracking-wider">Date</th>
+                            <th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase tracking-wider">Submitter</th>
+                            <th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase tracking-wider">Purpose</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border/30">
+                          {unboundReceipts.length === 0 ? (
+                            <tr>
+                              <td colSpan={3} className="px-3 py-8 text-center text-muted-foreground">
+                                No unbound receipts available. Upload a new one instead.
+                              </td>
+                            </tr>
+                          ) : (
+                            unboundReceipts.map((r) => (
+                              <tr 
+                                key={r.id} 
+                                onClick={() => setSelectedReceiptId(r.id)}
+                                className={cn(
+                                  "cursor-pointer transition-colors hover:bg-primary/5",
+                                  selectedReceiptId === r.id ? "bg-primary/10 hover:bg-primary/15" : ""
+                                )}
+                              >
+                                <td className="px-3 py-3 tabular-nums text-muted-foreground whitespace-nowrap">
+                                  {new Date(r.createdAt).toLocaleDateString()}
+                                </td>
+                                <td className="px-3 py-3 font-medium whitespace-nowrap">{r.submitterName}</td>
+                                <td className="px-3 py-3 min-w-[120px]">{r.purpose}</td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
                 <DialogFooter>
                   <DialogClose asChild>
