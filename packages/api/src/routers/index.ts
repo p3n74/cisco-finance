@@ -214,21 +214,21 @@ export const appRouter = router({
                       <h3 style="margin-top: 0; color: #2c5282; font-size: 18px;">Submission Details</h3>
                       <table style="width: 100%; border-collapse: collapse;">
                         <tr>
-                          <td style="padding: 5px 0; color: #718096; width: 120px;">Submitter:</td>
-                          <td style="padding: 5px 0; font-weight: 600;">${input.submitterName}</td>
+                          <td style="padding: 5px 0; color: #718096; width: 120px; vertical-align: top;">Submitter:</td>
+                          <td style="padding: 5px 0; font-weight: 600; vertical-align: top;">${input.submitterName}</td>
                         </tr>
                         <tr>
-                          <td style="padding: 5px 0; color: #718096;">Purpose:</td>
-                          <td style="padding: 5px 0; font-weight: 600;">${input.purpose}</td>
+                          <td style="padding: 5px 0; color: #718096; vertical-align: top;">Purpose:</td>
+                          <td style="padding: 5px 0; font-weight: 600; vertical-align: top;">${input.purpose}</td>
                         </tr>
                         ${input.notes ? `
                         <tr>
-                          <td style="padding: 5px 0; color: #718096;">Notes:</td>
-                          <td style="padding: 5px 0;">${input.notes}</td>
+                          <td style="padding: 5px 0; color: #718096; vertical-align: top;">Notes:</td>
+                          <td style="padding: 5px 0; vertical-align: top;">${input.notes}</td>
                         </tr>` : ""}
                         <tr>
-                          <td style="padding: 5px 0; color: #718096;">Reimbursement:</td>
-                          <td style="padding: 5px 0;">
+                          <td style="padding: 5px 0; color: #718096; vertical-align: top;">Reimbursement:</td>
+                          <td style="padding: 5px 0; vertical-align: top;">
                             ${input.needsReimbursement ? `
                               <span style="color: #e53e3e; font-weight: bold;">YES</span>
                               <div style="font-size: 13px; color: #4a5568; margin-top: 5px; border-top: 1px dashed #e2e8f0; padding-top: 5px;">
