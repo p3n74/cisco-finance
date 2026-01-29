@@ -37,6 +37,7 @@
   },
   "dependencies": {
     "@cisco-finance/env": "workspace:*",
+    "@prisma/client-runtime-utils": "^7.3.0",
     "dotenv": "catalog:",
     "zod": "catalog:"
   },

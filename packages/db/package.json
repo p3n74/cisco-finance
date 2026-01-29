@@ -17,15 +17,13 @@
   },
   "dependencies": {
     "@cisco-finance/env": "workspace:*",
-    "@prisma/adapter-pg": "^7.2.0",
     "@prisma/client": "catalog:",
+    "@prisma/extension-accelerate": "^3.0.1",
     "dotenv": "catalog:",
-    "pg": "^8.17.1",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@cisco-finance/config": "workspace:*",
-    "@types/pg": "^8.16.0",
     "prisma": "^7.2.0",
     "typescript": "catalog:"
   }

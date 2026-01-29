@@ -1,12 +1,13 @@
 import { env } from "@cisco-finance/env/server";
-import { PrismaPg } from "@prisma/adapter-pg";
+import { PrismaClient } from "@prisma/client";
+import { withAccelerate } from "@prisma/extension-accelerate";
 
-import { PrismaClient } from "../prisma/generated/client";
-
-const adapter = new PrismaPg({
-  connectionString: env.DATABASE_URL,
+const basePrisma = new PrismaClient({
+  accelerateUrl: env.DATABASE_URL,
 });
 
-const prisma = new PrismaClient({ adapter });
+export const prisma = basePrisma.$extends(withAccelerate());
+
+export type PrismaClientType = typeof prisma;
 
 export default prisma;

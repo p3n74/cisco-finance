@@ -14,6 +14,8 @@
     "@cisco-finance/auth": "workspace:*",
     "@cisco-finance/db": "workspace:*",
     "@cisco-finance/env": "workspace:*",
+    "@prisma/client": "catalog:",
+    "@prisma/extension-accelerate": "^3.0.1",
     "@trpc/client": "catalog:",
     "@trpc/server": "catalog:",
     "better-auth": "catalog:",

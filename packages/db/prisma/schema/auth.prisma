@@ -1,16 +1,89 @@
 model User {
-  id            String    @id
-  name          String
-  email         String
-  emailVerified Boolean   @default(false)
-  image         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  sessions      Session[]
-  accounts      Account[]
+  id              String           @id
+  name            String
+  email           String
+  emailVerified   Boolean          @default(false)
+  image           String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  sessions        Session[]
+  accounts        Account[]
+  accountEntries  AccountEntry[]
+  cashflowEntries CashflowEntry[]
+  receipts        Receipt[]
 
   @@unique([email])
   @@map("user")
+}
+
+// Treasury account transactions (GCash, GoTyme, Cash, BPI)
+// These are historical records - money has already moved
+model AccountEntry {
+  id            String         @id @default(cuid())
+  userId        String
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date          DateTime
+  description   String
+  account       String         // GCash, GoTyme, Cash, BPI
+  amount        Decimal
+  currency      String         @default("PHP")
+  notes         String?
+  isActive      Boolean        @default(true)
+  archivedAt    DateTime?
+  // Link to cashflow entry when verified
+  cashflowEntry CashflowEntry?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([userId])
+  @@index([date])
+  @@index([account])
+  @@index([isActive])
+  @@map("account_entry")
+}
+
+// Official cashflow transactions (verified from accounts)
+model CashflowEntry {
+  id             String        @id @default(cuid())
+  userId         String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date           DateTime
+  description    String        // Official designation
+  category       String
+  amount         Decimal
+  currency       String        @default("PHP")
+  notes          String?
+  isActive       Boolean       @default(true)
+  archivedAt     DateTime?
+  // Reference to the account entry this was verified from
+  accountEntryId String?       @unique
+  accountEntry   AccountEntry? @relation(fields: [accountEntryId], references: [id], onDelete: SetNull)
+  receipts       Receipt[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([userId])
+  @@index([date])
+  @@index([category])
+  @@index([isActive])
+  @@map("cashflow_entry")
+}
+
+model Receipt {
+  id              String         @id @default(cuid())
+  userId          String
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cashflowEntryId String?
+  cashflowEntry   CashflowEntry? @relation(fields: [cashflowEntryId], references: [id], onDelete: SetNull)
+  fileName        String
+  fileType        String?
+  fileUrl         String?
+  storageKey      String?
+  uploadedAt      DateTime       @default(now())
+
+  @@index([userId])
+  @@index([cashflowEntryId])
+  @@map("receipt")
 }
 
 model Session {

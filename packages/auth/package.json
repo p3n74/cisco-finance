@@ -14,6 +14,8 @@
     "@better-auth/expo": "catalog:",
     "@cisco-finance/db": "workspace:*",
     "@cisco-finance/env": "workspace:*",
+    "@prisma/client": "catalog:",
+    "@prisma/extension-accelerate": "^3.0.1",
     "better-auth": "catalog:",
     "dotenv": "catalog:",
     "zod": "catalog:"

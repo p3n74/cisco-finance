@@ -2,7 +2,7 @@ import type { AppRouter } from "@cisco-finance/api/routers/index";
 
 import { env } from "@cisco-finance/env/web";
 import { QueryCache, QueryClient } from "@tanstack/react-query";
-import { createTRPCClient, httpBatchLink } from "@trpc/client";
+import { createTRPCClient, httpLink } from "@trpc/client";
 import { createTRPCOptionsProxy } from "@trpc/tanstack-react-query";
 import { toast } from "sonner";
 
@@ -21,7 +21,7 @@ export const queryClient = new QueryClient({
 
 export const trpcClient = createTRPCClient<AppRouter>({
   links: [
-    httpBatchLink({
+    httpLink({
       url: `${env.VITE_SERVER_URL}/trpc`,
       fetch(url, options) {
         return fetch(url, {
