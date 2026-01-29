@@ -184,27 +184,63 @@ export const appRouter = router({
 
         // Notify Auditor via Email if not submitted by Auditor
         if (ctx.userRole !== "AUDITOR") {
-          const auditor = await ctx.prisma.authorizedUser.findFirst({
+          const auditorAuth = await ctx.prisma.authorizedUser.findFirst({
             where: { role: "AUDITOR" },
           });
 
-          if (auditor?.email) {
+          if (auditorAuth?.email) {
+            // Try to find the user's name from the User table
+            const auditorUser = await ctx.prisma.user.findUnique({
+              where: { email: auditorAuth.email },
+              select: { name: true },
+            });
+
+            const auditorName = auditorUser?.name || "Auditor";
+
             await sendEmail(
-              auditor.email,
-              "New Receipt Submission",
+              auditorAuth.email,
+              `[CISCO FINANCE] New Receipt Submission - ${input.submitterName}`,
               `
-                <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-                  <h2>New Receipt Submitted</h2>
-                  <p>A new receipt has been submitted for review.</p>
-                  
-                  <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
-                    <p><strong>Submitter:</strong> ${input.submitterName}</p>
-                    <p><strong>Purpose:</strong> ${input.purpose}</p>
-                    ${input.notes ? `<p><strong>Notes:</strong> ${input.notes}</p>` : ""}
-                    ${input.needsReimbursement ? `<p><strong>Reimbursement Requested:</strong> ${input.reimbursementMethod} (${input.accountType || ""})</p>` : ""}
+                <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
+                  <div style="background-color: #1a365d; color: white; padding: 20px; text-align: center;">
+                    <h1 style="margin: 0; font-size: 24px;">CISCO FINANCE</h1>
                   </div>
                   
-                  <p>Please log in to the dashboard to review and bind this receipt.</p>
+                  <div style="padding: 30px; color: #333; line-height: 1.6;">
+                    <p style="font-size: 16px;">Hello <strong>${auditorName}</strong>,</p>
+                    <p>A new receipt has been submitted to the platform and requires your review.</p>
+                    
+                    <div style="background-color: #f8fafc; border-left: 4px solid #3182ce; padding: 20px; margin: 25px 0;">
+                      <h3 style="margin-top: 0; color: #2c5282; font-size: 18px;">Submission Details</h3>
+                      <table style="width: 100%; border-collapse: collapse;">
+                        <tr>
+                          <td style="padding: 5px 0; color: #718096; width: 120px;">Submitter:</td>
+                          <td style="padding: 5px 0; font-weight: 600;">${input.submitterName}</td>
+                        </tr>
+                        <tr>
+                          <td style="padding: 5px 0; color: #718096;">Purpose:</td>
+                          <td style="padding: 5px 0; font-weight: 600;">${input.purpose}</td>
+                        </tr>
+                        ${input.notes ? `
+                        <tr>
+                          <td style="padding: 5px 0; color: #718096;">Notes:</td>
+                          <td style="padding: 5px 0;">${input.notes}</td>
+                        </tr>` : ""}
+                        <tr>
+                          <td style="padding: 5px 0; color: #718096;">Reimbursement:</td>
+                          <td style="padding: 5px 0;">${input.needsReimbursement ? `<span style="color: #e53e3e; font-weight: bold;">Yes</span> (${input.reimbursementMethod})` : "No"}</td>
+                        </tr>
+                      </table>
+                    </div>
+                    
+                    <div style="text-align: center; margin-top: 30px;">
+                      <a href="${process.env.BETTER_AUTH_URL || "#"}" style="background-color: #3182ce; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">View in Dashboard</a>
+                    </div>
+                  </div>
+                  
+                  <div style="background-color: #f7fafc; padding: 15px; text-align: center; color: #a0aec0; font-size: 12px; border-top: 1px solid #e2e8f0;">
+                    <p>This is an automated notification from the CISCO Finance System.</p>
+                  </div>
                 </div>
               `
             );
