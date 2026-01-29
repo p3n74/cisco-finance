@@ -92,6 +92,9 @@ function ReceiptsRoute() {
     if (filterReimbursement === "none" && s.needsReimbursement) return false;
     return true;
   });
+  const sortedFilteredSubmissions = [...filteredSubmissions].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
 
   const unboundCount = submissions.filter((s) => !s.isBound).length;
   const reimbursementCount = submissions.filter((s) => s.needsReimbursement).length;
@@ -155,8 +158,8 @@ function ReceiptsRoute() {
       <Card>
         <CardHeader>
           <CardTitle>Receipt Submissions</CardTitle>
-          <CardDescription>
-            {filteredSubmissions.length} submission{filteredSubmissions.length === 1 ? "" : "s"}
+            <CardDescription>
+            {sortedFilteredSubmissions.length} submission{sortedFilteredSubmissions.length === 1 ? "" : "s"}
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
@@ -173,14 +176,14 @@ function ReceiptsRoute() {
                 </tr>
               </thead>
               <tbody>
-                {filteredSubmissions.length === 0 ? (
+                {sortedFilteredSubmissions.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-5 py-8 text-center text-muted-foreground">
                       No receipts found.
                     </td>
                   </tr>
                 ) : (
-                  filteredSubmissions.map((submission) => (
+                  sortedFilteredSubmissions.map((submission) => (
                     <tr
                       key={submission.id}
                       className={`border-b border-border/30 last:border-0 transition-colors hover:bg-muted/20 ${

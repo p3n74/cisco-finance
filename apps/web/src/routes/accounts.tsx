@@ -83,6 +83,9 @@ function AccountsRoute() {
 
   const entries = entriesQuery.data ?? [];
   const activeEntries = entries.filter((entry) => entry.isActive);
+  const sortedEntries = [...entries].sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+  );
 
   const totalInflow = activeEntries
     .filter((entry) => entry.amount > 0)
@@ -249,14 +252,14 @@ function AccountsRoute() {
                 </tr>
               </thead>
               <tbody>
-                {entries.length === 0 ? (
+                {sortedEntries.length === 0 ? (
                   <tr>
                     <td className="px-4 py-6 text-center text-muted-foreground" colSpan={8}>
                       No entries yet. Click "New transaction" to add your first account entry.
                     </td>
                   </tr>
                 ) : (
-                  entries.map((entry) => {
+                  sortedEntries.map((entry) => {
                     return (
                     <Fragment key={entry.id}>
                       <tr

@@ -173,6 +173,9 @@ function RouteComponent() {
 
   const cashflowEntries = cashflowQuery.data ?? [];
   const activeEntries = cashflowEntries.filter((entry) => entry.isActive);
+  const sortedActiveEntries = [...activeEntries].sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+  );
 
   const attachingToEntry = activeEntries.find((e) => e.id === attachingToEntryId);
   const viewingEntry = activeEntries.find((e) => e.id === viewingReceiptsEntryId);
@@ -184,10 +187,8 @@ function RouteComponent() {
     .filter((entry) => entry.amount < 0)
     .reduce((sum, entry) => sum + Math.abs(entry.amount), 0);
   const netCashflow = totalInflow - totalOutflow;
-  const receiptsCount = activeEntries.reduce(
-    (sum, entry) => sum + entry.receiptsCount,
-    0,
-  );
+  const projectedCashflow =
+    netCashflow - (budgetOverview?.totalBudget ?? 0);
   
   const unverifiedAmount = unverifiedEntries.reduce(
     (sum, e) => sum + Math.abs(e.amount),
@@ -382,17 +383,28 @@ function RouteComponent() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-xs text-muted-foreground">Rolling 30-day</p>
+            <p className="text-xs text-muted-foreground">Current verified net balance (money left)</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Receipts</CardDescription>
-            <CardTitle className="text-2xl">{receiptsCount}</CardTitle>
+            <CardDescription>Projected Cashflow</CardDescription>
+            <CardTitle
+              className={`text-2xl ${
+                projectedCashflow >= 0 ? "text-foreground" : "text-rose-500"
+              }`}
+            >
+              {formatCurrency(projectedCashflow)}
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-xs text-muted-foreground">Attached files</p>
+            <p className="text-xs text-muted-foreground">
+              After planned event budgets
+              {budgetOverview
+                ? ` (${formatCurrency(budgetOverview.totalBudget)} planned)`
+                : ""}
+            </p>
           </CardContent>
         </Card>
 
@@ -522,14 +534,14 @@ function RouteComponent() {
                 </tr>
               </thead>
               <tbody>
-              {activeEntries.length === 0 ? (
+              {sortedActiveEntries.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-5 py-8 text-center text-muted-foreground">
                     No transactions yet. Verify transactions from the Accounts page.
                   </td>
                 </tr>
               ) : (
-                activeEntries.map((entry) => {
+                sortedActiveEntries.map((entry) => {
                   const hasAccountEntry = !!entry.accountEntryId;
                   return (
                     <tr
