@@ -68,7 +68,7 @@ function RouteComponent() {
   const [attachMode, setAttachMode] = useState<"select" | "upload">("select");
   const [selectedReceiptId, setSelectedReceiptId] = useState<string>("");
   const [uploadForm, setUploadForm] = useState({
-    submitterName: session.data?.user.name ?? "",
+    submitterName: session.data?.user?.name ?? "",
     purpose: "",
     notes: "",
   });
@@ -140,7 +140,7 @@ function RouteComponent() {
     setAttachMode("select");
     setSelectedReceiptId("");
     setUploadForm({
-      submitterName: session.data?.user.name ?? "",
+      submitterName: session.data?.user?.name ?? "",
       purpose: "",
       notes: "",
     });
@@ -219,7 +219,7 @@ function RouteComponent() {
           <p className="text-xs font-medium uppercase tracking-widest text-primary">Dashboard</p>
           <h1 className="text-3xl font-bold tracking-tight">Finance Overview</h1>
           <p className="text-muted-foreground">
-            Welcome back, {session.data?.user.name}
+            Welcome back, {session.data?.user?.name ?? "User"}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

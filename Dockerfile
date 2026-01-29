@@ -18,21 +18,20 @@ RUN bun run db:generate
 # Build the applications
 RUN bun run build
 
-# Server target
-FROM base AS server
+# Production stage (combined)
+FROM base AS runner
 ENV NODE_ENV=production
+WORKDIR /app
+
+# Copy built server and web files
 COPY --from=builder /app/apps/server/dist ./apps/server/dist
 COPY --from=builder /app/apps/server/package.json ./apps/server/package.json
+COPY --from=builder /app/apps/web/dist ./apps/web/dist
 COPY --from=builder /app/packages ./packages
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
-EXPOSE 3000
-CMD ["bun", "run", "--cwd", "apps/server", "start"]
 
-# Web target (using Nginx to serve static files)
-FROM nginx:alpine AS web
-COPY --from=builder /app/apps/web/dist /usr/share/nginx/html
-# Add a simple nginx config to handle SPA routing if needed
-RUN echo "server { listen 80; location / { root /usr/share/nginx/html; index index.html; try_files \$uri \$uri/ /index.html; } }" > /etc/nginx/conf.d/default.conf
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+EXPOSE 3000
+
+# Start the combined server
+CMD ["bun", "run", "--cwd", "apps/server", "start"]

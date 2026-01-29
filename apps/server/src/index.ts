@@ -9,6 +9,12 @@ import cors from "cors";
 import express from "express";
 import { emitToAll, emitToUser, initWebSocket } from "./websocket";
 
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
 const httpServer = createServer(app);
 
@@ -49,6 +55,19 @@ app.get("/", (_req, res) => {
 // Health check endpoint for WebSocket status
 app.get("/ws/health", (_req, res) => {
   res.status(200).json({ status: "ok", websocket: true });
+});
+
+// Serve static files from the web app
+const webDistPath = path.resolve(__dirname, "../../web/dist");
+app.use(express.static(webDistPath));
+
+// Fallback to index.html for SPA routing
+app.get("*", (req, res, next) => {
+  // Don't intercept TRPC or Auth routes
+  if (req.path.startsWith("/trpc") || req.path.startsWith("/api/auth")) {
+    return next();
+  }
+  res.sendFile(path.join(webDistPath, "index.html"));
 });
 
 httpServer.listen(3000, () => {
