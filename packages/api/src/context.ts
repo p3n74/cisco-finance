@@ -2,15 +2,10 @@ import type { CreateExpressContextOptions } from "@trpc/server/adapters/express"
 
 import { auth } from "@cisco-finance/auth";
 import { env } from "@cisco-finance/env/server";
-import { PrismaClient } from "@prisma/client";
-import { withAccelerate } from "@prisma/extension-accelerate";
+import { prisma } from "@cisco-finance/db";
 import { fromNodeHeaders } from "better-auth/node";
 
-// Create prisma client directly to avoid workspace import issues
-const prisma = new PrismaClient({
-  accelerateUrl: env.DATABASE_URL,
-}).$extends(withAccelerate());
-
+// Use the shared prisma client from @cisco-finance/db
 console.log("[context] prisma client created:", !!prisma);
 
 /**
