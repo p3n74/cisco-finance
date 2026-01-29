@@ -59,8 +59,18 @@ export async function createContext(opts: CreateExpressContextOptions) {
     headers: fromNodeHeaders(opts.req.headers),
   });
   console.log("[context] createContext called, prisma:", !!prisma);
+
+  let userRole: string | null = null;
+  if (session?.user?.email) {
+    const authorizedUser = await prisma.authorizedUser.findUnique({
+      where: { email: session.user.email },
+    });
+    userRole = authorizedUser?.role ?? null;
+  }
+
   return {
     session,
+    userRole,
     prisma,
     ws: wsEmitter,
   };

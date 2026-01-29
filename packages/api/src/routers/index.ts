@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { protectedProcedure, publicProcedure, router } from "../index";
 import { WS_EVENTS, type WsEmitter, type Context } from "../context";
+import { teamRouter } from "./team";
 
 const ACCOUNT_OPTIONS = ["GCash", "GoTyme", "Cash", "BPI"] as const;
 
@@ -42,6 +43,9 @@ export const appRouter = router({
   healthCheck: publicProcedure.query(() => {
     return "OK";
   }),
+  
+  team: teamRouter,
+
   privateData: protectedProcedure.query(({ ctx }) => {
     return {
       message: "This is private",

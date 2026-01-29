@@ -18,6 +18,16 @@ model User {
   @@map("user")
 }
 
+model AuthorizedUser {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  role      String   // VP_FINANCE, AUDITOR, TREASURER, WAYS_AND_MEANS
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("authorized_user")
+}
+
 // Treasury account transactions (GCash, GoTyme, Cash, BPI)
 // These are historical records - money has already moved
 model AccountEntry {
