@@ -1,0 +1,23 @@
+services:
+  server:
+    build:
+      context: .
+      target: server
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:5173}
+      - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET}
+      # Add other env vars as needed
+
+  web:
+    build:
+      context: .
+      target: web
+      args:
+        - VITE_SERVER_URL=${VITE_SERVER_URL:-http://localhost:3000}
+    ports:
+      - "80:80"
+    depends_on:
+      - server
