@@ -9,6 +9,7 @@ import type { trpc } from "@/utils/trpc";
 import Header from "@/components/header";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
+import { WebSocketProvider } from "@/components/websocket-provider";
 
 import "../index.css";
 
@@ -48,12 +49,14 @@ function RootComponent() {
         disableTransitionOnChange
         storageKey="vite-ui-theme"
       >
-        <div className="bg-image min-h-svh">
-          <Header />
-          <main className="pb-8">
-            <Outlet />
-          </main>
-        </div>
+        <WebSocketProvider>
+          <div className="bg-image min-h-svh">
+            <Header />
+            <main className="pb-8">
+              <Outlet />
+            </main>
+          </div>
+        </WebSocketProvider>
         <Toaster richColors />
       </ThemeProvider>
       <TanStackRouterDevtools position="bottom-left" />

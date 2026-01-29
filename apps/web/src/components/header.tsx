@@ -4,6 +4,7 @@ import { authClient } from "@/lib/auth-client";
 
 import { ModeToggle } from "./mode-toggle";
 import { Button } from "./ui/button";
+import { WebSocketStatus } from "./websocket-provider";
 
 export default function Header() {
   const { data: session } = authClient.useSession();
@@ -58,7 +59,8 @@ export default function Header() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            {session && <WebSocketStatus />}
             <ModeToggle />
             {session ? (
               <div className="flex items-center gap-3">

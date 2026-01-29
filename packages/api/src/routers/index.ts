@@ -1,19 +1,20 @@
 import { z } from "zod";
-import type { PrismaClient } from "@prisma/client";
 
 import { protectedProcedure, publicProcedure, router } from "../index";
+import { WS_EVENTS, type WsEmitter, type Context } from "../context";
 
 const ACCOUNT_OPTIONS = ["GCash", "GoTyme", "Cash", "BPI"] as const;
 
-// Helper function to create activity logs
+// Helper function to create activity logs and emit WebSocket event
 async function logActivity(
-  prisma: PrismaClient,
+  prisma: Context["prisma"],
   userId: string,
   action: string,
   entityType: string,
   description: string,
   entityId?: string,
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>,
+  ws?: WsEmitter | null
 ) {
   await prisma.activityLog.create({
     data: {
@@ -25,6 +26,16 @@ async function logActivity(
       metadata: metadata ? JSON.stringify(metadata) : null,
     },
   });
+
+  // Emit activity logged event with message for toast notification
+  if (ws) {
+    ws.emitToUser(userId, {
+      event: WS_EVENTS.ACTIVITY_LOGGED,
+      action: "created",
+      entityId,
+      message: description,
+    });
+  }
 }
 
 export const appRouter = router({
@@ -166,6 +177,14 @@ export const appRouter = router({
             contactType: input.contactType,
           },
         });
+
+        // Emit to all users (public submission notification)
+        ctx.ws?.emitToAll({
+          event: WS_EVENTS.RECEIPT_UPDATED,
+          action: "created",
+          entityId: submission.id,
+        });
+
         return { id: submission.id, message: "Receipt submitted successfully" };
       }),
     // Admin: list all submissions
@@ -271,8 +290,25 @@ export const appRouter = router({
           "receipt_submission",
           `bound receipt from ${receipt?.submitterName} to "${cashflow?.description}"`,
           input.id,
-          { cashflowEntryId: input.cashflowEntryId, purpose: receipt?.purpose }
+          { cashflowEntryId: input.cashflowEntryId, purpose: receipt?.purpose },
+          ctx.ws
         );
+
+        // Emit receipt and cashflow updates
+        ctx.ws?.emitToUser(ctx.session.user.id, {
+          event: WS_EVENTS.RECEIPT_UPDATED,
+          action: "bound",
+          entityId: input.id,
+        });
+        ctx.ws?.emitToUser(ctx.session.user.id, {
+          event: WS_EVENTS.CASHFLOW_UPDATED,
+          action: "updated",
+          entityId: input.cashflowEntryId,
+        });
+        ctx.ws?.emitToUser(ctx.session.user.id, {
+          event: WS_EVENTS.STATS_UPDATED,
+          action: "updated",
+        });
 
         return result;
       }),
@@ -282,8 +318,10 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const receipt = await ctx.prisma.receiptSubmission.findUnique({
           where: { id: input.id },
-          include: { cashflowEntry: { select: { description: true } } },
+          include: { cashflowEntry: { select: { id: true, description: true } } },
         });
+
+        const cashflowEntryId = receipt?.cashflowEntry?.id;
 
         const result = await ctx.prisma.receiptSubmission.update({
           where: { id: input.id },
@@ -301,8 +339,27 @@ export const appRouter = router({
           "receipt_submission",
           `unbound receipt from ${receipt?.submitterName} from "${receipt?.cashflowEntry?.description}"`,
           input.id,
-          { purpose: receipt?.purpose }
+          { purpose: receipt?.purpose },
+          ctx.ws
         );
+
+        // Emit receipt and cashflow updates
+        ctx.ws?.emitToUser(ctx.session.user.id, {
+          event: WS_EVENTS.RECEIPT_UPDATED,
+          action: "unbound",
+          entityId: input.id,
+        });
+        if (cashflowEntryId) {
+          ctx.ws?.emitToUser(ctx.session.user.id, {
+            event: WS_EVENTS.CASHFLOW_UPDATED,
+            action: "updated",
+            entityId: cashflowEntryId,
+          });
+        }
+        ctx.ws?.emitToUser(ctx.session.user.id, {
+          event: WS_EVENTS.STATS_UPDATED,
+          action: "updated",
+        });
 
         return result;
       }),
@@ -364,8 +421,25 @@ export const appRouter = router({
           "receipt_submission",
           `uploaded and bound receipt for "${input.purpose}" to "${cashflow?.description}"`,
           submission.id,
-          { cashflowEntryId: input.cashflowEntryId, purpose: input.purpose }
+          { cashflowEntryId: input.cashflowEntryId, purpose: input.purpose },
+          ctx.ws
         );
+
+        // Emit receipt and cashflow updates
+        ctx.ws?.emitToUser(ctx.session.user.id, {
+          event: WS_EVENTS.RECEIPT_UPDATED,
+          action: "created",
+          entityId: submission.id,
+        });
+        ctx.ws?.emitToUser(ctx.session.user.id, {
+          event: WS_EVENTS.CASHFLOW_UPDATED,
+          action: "updated",
+          entityId: input.cashflowEntryId,
+        });
+        ctx.ws?.emitToUser(ctx.session.user.id, {
+          event: WS_EVENTS.STATS_UPDATED,
+          action: "updated",
+        });
 
         return { id: submission.id, message: "Receipt uploaded and bound successfully" };
       }),
@@ -457,8 +531,20 @@ export const appRouter = router({
           "account_entry",
           `added ${input.account} transaction "${input.description}" for ${input.amount >= 0 ? "+" : ""}${input.amount}`,
           entry.id,
-          { account: input.account, amount: input.amount }
+          { account: input.account, amount: input.amount },
+          ctx.ws
         );
+
+        // Emit account entry update
+        ctx.ws?.emitToUser(ctx.session.user.id, {
+          event: WS_EVENTS.ACCOUNT_ENTRY_UPDATED,
+          action: "created",
+          entityId: entry.id,
+        });
+        ctx.ws?.emitToUser(ctx.session.user.id, {
+          event: WS_EVENTS.STATS_UPDATED,
+          action: "updated",
+        });
 
         return entry;
       }),
@@ -485,6 +571,20 @@ export const appRouter = router({
             amount: input.amount,
           },
         });
+
+        if (result.count > 0) {
+          // Emit account entry update
+          ctx.ws?.emitToUser(ctx.session.user.id, {
+            event: WS_EVENTS.ACCOUNT_ENTRY_UPDATED,
+            action: "updated",
+            entityId: input.id,
+          });
+          ctx.ws?.emitToUser(ctx.session.user.id, {
+            event: WS_EVENTS.STATS_UPDATED,
+            action: "updated",
+          });
+        }
+
         return { updated: result.count };
       }),
     archive: protectedProcedure
@@ -512,8 +612,21 @@ export const appRouter = router({
             "archived",
             "account_entry",
             `archived ${entry?.account} transaction "${entry?.description}"`,
-            input.id
+            input.id,
+            undefined,
+            ctx.ws
           );
+
+          // Emit account entry update
+          ctx.ws?.emitToUser(ctx.session.user.id, {
+            event: WS_EVENTS.ACCOUNT_ENTRY_UPDATED,
+            action: "archived",
+            entityId: input.id,
+          });
+          ctx.ws?.emitToUser(ctx.session.user.id, {
+            event: WS_EVENTS.STATS_UPDATED,
+            action: "updated",
+          });
         }
 
         return { updated: result.count };
@@ -616,8 +729,27 @@ export const appRouter = router({
           "cashflow_entry",
           `${action} transaction "${input.description}" for ${input.amount >= 0 ? "+" : ""}${input.amount}`,
           entry.id,
-          { amount: input.amount, category: input.category }
+          { amount: input.amount, category: input.category },
+          ctx.ws
         );
+
+        // Emit cashflow and potentially account entry updates
+        ctx.ws?.emitToUser(ctx.session.user.id, {
+          event: WS_EVENTS.CASHFLOW_UPDATED,
+          action: "created",
+          entityId: entry.id,
+        });
+        if (input.accountEntryId) {
+          ctx.ws?.emitToUser(ctx.session.user.id, {
+            event: WS_EVENTS.ACCOUNT_ENTRY_UPDATED,
+            action: "updated",
+            entityId: input.accountEntryId,
+          });
+        }
+        ctx.ws?.emitToUser(ctx.session.user.id, {
+          event: WS_EVENTS.STATS_UPDATED,
+          action: "updated",
+        });
 
         return entry;
       }),
@@ -646,8 +778,21 @@ export const appRouter = router({
             "archived",
             "cashflow_entry",
             `archived transaction "${entry?.description}"`,
-            input.id
+            input.id,
+            undefined,
+            ctx.ws
           );
+
+          // Emit cashflow update
+          ctx.ws?.emitToUser(ctx.session.user.id, {
+            event: WS_EVENTS.CASHFLOW_UPDATED,
+            action: "archived",
+            entityId: input.id,
+          });
+          ctx.ws?.emitToUser(ctx.session.user.id, {
+            event: WS_EVENTS.STATS_UPDATED,
+            action: "updated",
+          });
         }
 
         return { updated: result.count };

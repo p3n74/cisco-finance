@@ -13,6 +13,46 @@ const prisma = new PrismaClient({
 
 console.log("[context] prisma client created:", !!prisma);
 
+/**
+ * WebSocket event types for real-time updates
+ */
+export const WS_EVENTS = {
+  CASHFLOW_UPDATED: "cashflow:updated",
+  ACCOUNT_ENTRY_UPDATED: "account_entry:updated",
+  RECEIPT_UPDATED: "receipt:updated",
+  ACTIVITY_LOGGED: "activity:logged",
+  STATS_UPDATED: "stats:updated",
+} as const;
+
+export type WsEventType = (typeof WS_EVENTS)[keyof typeof WS_EVENTS];
+
+export interface WsEventPayload {
+  event: WsEventType;
+  entityId?: string;
+  action: "created" | "updated" | "archived" | "bound" | "unbound" | "deleted";
+  /** Optional message for toast notifications */
+  message?: string;
+}
+
+/**
+ * WebSocket emitter functions that can be injected into context
+ */
+export interface WsEmitter {
+  emitToUser: (userId: string, payload: WsEventPayload) => void;
+  emitToAll: (payload: WsEventPayload) => void;
+}
+
+// Store for the WebSocket emitter (set by server)
+let wsEmitter: WsEmitter | null = null;
+
+export function setWsEmitter(emitter: WsEmitter) {
+  wsEmitter = emitter;
+}
+
+export function getWsEmitter(): WsEmitter | null {
+  return wsEmitter;
+}
+
 export async function createContext(opts: CreateExpressContextOptions) {
   const session = await auth.api.getSession({
     headers: fromNodeHeaders(opts.req.headers),
@@ -21,6 +61,7 @@ export async function createContext(opts: CreateExpressContextOptions) {
   return {
     session,
     prisma,
+    ws: wsEmitter,
   };
 }
 
