@@ -24,6 +24,7 @@
   "type": "module",
   "scripts": {
     "dev": "turbo dev",
+    "start": "turbo run start",
     "build": "turbo build",
     "check-types": "turbo check-types",
     "dev:native": "turbo -F native dev",
