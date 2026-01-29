@@ -47,6 +47,10 @@ function RouteComponent() {
   const unboundReceiptsQuery = useQuery(unboundReceiptsQueryOptions);
   const unboundReceiptsCount = unboundReceiptsQuery.data?.count ?? 0;
 
+  const budgetOverviewQueryOptions = trpc.budgetProjects.overview.queryOptions();
+  const budgetOverviewQuery = useQuery(budgetOverviewQueryOptions);
+  const budgetOverview = budgetOverviewQuery.data;
+
   const unboundListQueryOptions = trpc.receiptSubmission.listUnbound.queryOptions();
   const unboundListQuery = useQuery(unboundListQueryOptions);
   const unboundReceipts = unboundListQuery.data ?? [];
@@ -408,6 +412,84 @@ function RouteComponent() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Budget Planning Quick Start */}
+      {budgetOverview && (
+        <Card className="border-primary/20 bg-gradient-to-r from-primary/5 to-transparent">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  Budget Planning
+                  {budgetOverview.plannedCount > 0 && (
+                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                      {budgetOverview.plannedCount} active
+                    </span>
+                  )}
+                </CardTitle>
+                <CardDescription>Track planned expenses for upcoming events</CardDescription>
+              </div>
+              <Button variant="outline" onClick={() => navigate({ to: "/budgets" })}>
+                View All Budgets
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="rounded-lg border border-border/60 p-4">
+                <p className="text-xs font-medium text-muted-foreground">Total Budget</p>
+                <p className="text-xl font-semibold">{formatCurrency(budgetOverview.totalBudget)}</p>
+                <p className="text-xs text-muted-foreground">{budgetOverview.totalProjects} project{budgetOverview.totalProjects === 1 ? "" : "s"}</p>
+              </div>
+              <div className="rounded-lg border border-border/60 p-4">
+                <p className="text-xs font-medium text-muted-foreground">Total Spent</p>
+                <p className={`text-xl font-semibold ${budgetOverview.totalActual > budgetOverview.totalBudget ? "text-rose-500" : "text-emerald-500"}`}>
+                  {formatCurrency(budgetOverview.totalActual)}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {budgetOverview.totalBudget > 0 
+                    ? `${((budgetOverview.totalActual / budgetOverview.totalBudget) * 100).toFixed(1)}% of budget`
+                    : "No budget set"}
+                </p>
+              </div>
+              <div className="rounded-lg border border-border/60 p-4">
+                <p className="text-xs font-medium text-muted-foreground">Remaining</p>
+                <p className={`text-xl font-semibold ${budgetOverview.totalBudget - budgetOverview.totalActual < 0 ? "text-rose-500" : ""}`}>
+                  {formatCurrency(budgetOverview.totalBudget - budgetOverview.totalActual)}
+                </p>
+                <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                  <div
+                    className={`h-1.5 rounded-full transition-all ${budgetOverview.totalActual > budgetOverview.totalBudget ? "bg-rose-500" : "bg-emerald-500"}`}
+                    style={{ width: `${Math.min((budgetOverview.totalActual / budgetOverview.totalBudget) * 100, 100) || 0}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+            {budgetOverview.upcomingEvents.length > 0 && (
+              <div className="mt-4 border-t pt-4">
+                <p className="mb-2 text-xs font-medium text-muted-foreground">Upcoming Events</p>
+                <div className="space-y-2">
+                  {budgetOverview.upcomingEvents.map((event) => (
+                    <div key={event.id} className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{event.name}</span>
+                        {event.category && (
+                          <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                            {event.category}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-muted-foreground">
+                        {event.eventDate && new Date(event.eventDate).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Transactions Table */}
       <Card>

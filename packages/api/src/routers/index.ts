@@ -633,6 +633,623 @@ export const appRouter = router({
       }),
   }),
 
+  // Budget Planning
+  budgetProjects: router({
+    // List all projects for user
+    list: protectedProcedure.query(async ({ ctx }) => {
+      const projects = await ctx.prisma.budgetProject.findMany({
+        where: {
+          userId: ctx.session.user.id,
+          isActive: true,
+        },
+        orderBy: [
+          { status: "asc" }, // planned first, then completed
+          { eventDate: "asc" },
+          { createdAt: "desc" },
+        ],
+        include: {
+          items: {
+            where: { isActive: true },
+            include: {
+              expenses: {
+                include: {
+                  cashflowEntry: {
+                    select: {
+                      id: true,
+                      amount: true,
+                      description: true,
+                      date: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      return projects.map((project) => {
+        const totalBudget = project.items.reduce(
+          (sum, item) => sum + Number(item.estimatedAmount),
+          0
+        );
+        const totalActual = project.items.reduce(
+          (sum, item) =>
+            sum +
+            item.expenses.reduce(
+              (expSum, exp) => expSum + Math.abs(Number(exp.cashflowEntry.amount)),
+              0
+            ),
+          0
+        );
+
+        return {
+          id: project.id,
+          name: project.name,
+          description: project.description,
+          category: project.category,
+          eventDate: project.eventDate,
+          status: project.status,
+          isActive: project.isActive,
+          createdAt: project.createdAt,
+          updatedAt: project.updatedAt,
+          totalBudget,
+          totalActual,
+          itemCount: project.items.length,
+          items: project.items.map((item) => ({
+            id: item.id,
+            name: item.name,
+            description: item.description,
+            estimatedAmount: Number(item.estimatedAmount),
+            notes: item.notes,
+            isActive: item.isActive,
+            createdAt: item.createdAt,
+            actualAmount: item.expenses.reduce(
+              (sum, exp) => sum + Math.abs(Number(exp.cashflowEntry.amount)),
+              0
+            ),
+            expenseCount: item.expenses.length,
+            expenses: item.expenses.map((exp) => ({
+              id: exp.id,
+              cashflowEntryId: exp.cashflowEntryId,
+              cashflowEntry: {
+                ...exp.cashflowEntry,
+                amount: Number(exp.cashflowEntry.amount),
+              },
+              createdAt: exp.createdAt,
+            })),
+          })),
+        };
+      });
+    }),
+
+    // Get single project by ID
+    getById: protectedProcedure
+      .input(z.object({ id: z.string() }))
+      .query(async ({ ctx, input }) => {
+        const project = await ctx.prisma.budgetProject.findFirst({
+          where: {
+            id: input.id,
+            userId: ctx.session.user.id,
+          },
+          include: {
+            items: {
+              where: { isActive: true },
+              orderBy: { createdAt: "asc" },
+              include: {
+                expenses: {
+                  include: {
+                    cashflowEntry: {
+                      select: {
+                        id: true,
+                        amount: true,
+                        description: true,
+                        date: true,
+                        category: true,
+                        accountEntry: {
+                          select: { id: true, account: true, description: true },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        if (!project) return null;
+
+        const totalBudget = project.items.reduce(
+          (sum, item) => sum + Number(item.estimatedAmount),
+          0
+        );
+        const totalActual = project.items.reduce(
+          (sum, item) =>
+            sum +
+            item.expenses.reduce(
+              (expSum, exp) => expSum + Math.abs(Number(exp.cashflowEntry.amount)),
+              0
+            ),
+          0
+        );
+
+        return {
+          id: project.id,
+          name: project.name,
+          description: project.description,
+          category: project.category,
+          eventDate: project.eventDate,
+          status: project.status,
+          isActive: project.isActive,
+          createdAt: project.createdAt,
+          updatedAt: project.updatedAt,
+          totalBudget,
+          totalActual,
+          items: project.items.map((item) => ({
+            id: item.id,
+            name: item.name,
+            description: item.description,
+            estimatedAmount: Number(item.estimatedAmount),
+            notes: item.notes,
+            isActive: item.isActive,
+            createdAt: item.createdAt,
+            actualAmount: item.expenses.reduce(
+              (sum, exp) => sum + Math.abs(Number(exp.cashflowEntry.amount)),
+              0
+            ),
+            expenses: item.expenses.map((exp) => ({
+              id: exp.id,
+              cashflowEntryId: exp.cashflowEntryId,
+              cashflowEntry: {
+                ...exp.cashflowEntry,
+                amount: Number(exp.cashflowEntry.amount),
+              },
+              createdAt: exp.createdAt,
+            })),
+          })),
+        };
+      }),
+
+    // Create new project
+    create: protectedProcedure
+      .input(
+        z.object({
+          name: z.string().min(2, "Name must be at least 2 characters"),
+          description: z.string().optional(),
+          category: z.string().optional(),
+          eventDate: z.coerce.date().optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const project = await ctx.prisma.budgetProject.create({
+          data: {
+            userId: ctx.session.user.id,
+            name: input.name,
+            description: input.description,
+            category: input.category,
+            eventDate: input.eventDate,
+          },
+        });
+
+        await logActivity(
+          ctx.prisma,
+          ctx.session.user.id,
+          "created",
+          "budget_project",
+          `created budget project "${input.name}"`,
+          project.id,
+          { category: input.category },
+          ctx.ws
+        );
+
+        ctx.ws?.emitToUser(ctx.session.user.id, {
+          event: WS_EVENTS.STATS_UPDATED,
+          action: "updated",
+        });
+
+        return project;
+      }),
+
+    // Update project
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.string(),
+          name: z.string().min(2).optional(),
+          description: z.string().optional(),
+          category: z.string().optional(),
+          eventDate: z.coerce.date().optional().nullable(),
+          status: z.enum(["planned", "completed"]).optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const { id, ...data } = input;
+        const result = await ctx.prisma.budgetProject.updateMany({
+          where: {
+            id,
+            userId: ctx.session.user.id,
+          },
+          data,
+        });
+
+        if (result.count > 0 && input.status) {
+          await logActivity(
+            ctx.prisma,
+            ctx.session.user.id,
+            input.status === "completed" ? "completed" : "updated",
+            "budget_project",
+            input.status === "completed"
+              ? `marked budget project as completed`
+              : `updated budget project`,
+            id,
+            undefined,
+            ctx.ws
+          );
+        }
+
+        return { updated: result.count };
+      }),
+
+    // Archive project
+    archive: protectedProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const project = await ctx.prisma.budgetProject.findFirst({
+          where: { id: input.id, userId: ctx.session.user.id },
+        });
+
+        const result = await ctx.prisma.budgetProject.updateMany({
+          where: {
+            id: input.id,
+            userId: ctx.session.user.id,
+          },
+          data: {
+            isActive: false,
+            archivedAt: new Date(),
+          },
+        });
+
+        if (result.count > 0) {
+          await logActivity(
+            ctx.prisma,
+            ctx.session.user.id,
+            "archived",
+            "budget_project",
+            `archived budget project "${project?.name}"`,
+            input.id,
+            undefined,
+            ctx.ws
+          );
+        }
+
+        return { updated: result.count };
+      }),
+
+    // Get overview stats for dashboard
+    overview: protectedProcedure.query(async ({ ctx }) => {
+      const projects = await ctx.prisma.budgetProject.findMany({
+        where: {
+          userId: ctx.session.user.id,
+          isActive: true,
+        },
+        include: {
+          items: {
+            where: { isActive: true },
+            include: {
+              expenses: {
+                include: {
+                  cashflowEntry: {
+                    select: { amount: true },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      const plannedProjects = projects.filter((p) => p.status === "planned");
+      const completedProjects = projects.filter((p) => p.status === "completed");
+
+      const totalBudget = projects.reduce(
+        (sum, p) =>
+          sum + p.items.reduce((iSum, item) => iSum + Number(item.estimatedAmount), 0),
+        0
+      );
+
+      const totalActual = projects.reduce(
+        (sum, p) =>
+          sum +
+          p.items.reduce(
+            (iSum, item) =>
+              iSum +
+              item.expenses.reduce(
+                (eSum, exp) => eSum + Math.abs(Number(exp.cashflowEntry.amount)),
+                0
+              ),
+            0
+          ),
+        0
+      );
+
+      // Find upcoming events (planned projects with event dates in the future)
+      const now = new Date();
+      const upcomingEvents = plannedProjects
+        .filter((p) => p.eventDate && new Date(p.eventDate) >= now)
+        .sort((a, b) => new Date(a.eventDate!).getTime() - new Date(b.eventDate!).getTime())
+        .slice(0, 3)
+        .map((p) => ({
+          id: p.id,
+          name: p.name,
+          eventDate: p.eventDate,
+          category: p.category,
+        }));
+
+      return {
+        totalProjects: projects.length,
+        plannedCount: plannedProjects.length,
+        completedCount: completedProjects.length,
+        totalBudget,
+        totalActual,
+        upcomingEvents,
+      };
+    }),
+  }),
+
+  // Budget Items
+  budgetItems: router({
+    // Create new item in a project
+    create: protectedProcedure
+      .input(
+        z.object({
+          budgetProjectId: z.string(),
+          name: z.string().min(2, "Name must be at least 2 characters"),
+          description: z.string().optional(),
+          estimatedAmount: z.coerce.number().min(0, "Amount must be positive"),
+          notes: z.string().optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        // Verify project belongs to user
+        const project = await ctx.prisma.budgetProject.findFirst({
+          where: {
+            id: input.budgetProjectId,
+            userId: ctx.session.user.id,
+          },
+        });
+
+        if (!project) {
+          throw new Error("Project not found");
+        }
+
+        const item = await ctx.prisma.budgetItem.create({
+          data: {
+            budgetProjectId: input.budgetProjectId,
+            name: input.name,
+            description: input.description,
+            estimatedAmount: input.estimatedAmount,
+            notes: input.notes,
+          },
+        });
+
+        await logActivity(
+          ctx.prisma,
+          ctx.session.user.id,
+          "created",
+          "budget_item",
+          `added budget item "${input.name}" (${input.estimatedAmount}) to "${project.name}"`,
+          item.id,
+          { projectId: input.budgetProjectId, amount: input.estimatedAmount },
+          ctx.ws
+        );
+
+        return item;
+      }),
+
+    // Update item
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.string(),
+          name: z.string().min(2).optional(),
+          description: z.string().optional(),
+          estimatedAmount: z.coerce.number().min(0).optional(),
+          notes: z.string().optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        // Verify item belongs to user's project
+        const item = await ctx.prisma.budgetItem.findFirst({
+          where: { id: input.id },
+          include: {
+            budgetProject: { select: { userId: true } },
+          },
+        });
+
+        if (!item || item.budgetProject.userId !== ctx.session.user.id) {
+          throw new Error("Item not found");
+        }
+
+        const { id, ...data } = input;
+        return ctx.prisma.budgetItem.update({
+          where: { id },
+          data,
+        });
+      }),
+
+    // Delete item (only if no linked expenses)
+    delete: protectedProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        // Verify item belongs to user's project
+        const item = await ctx.prisma.budgetItem.findFirst({
+          where: { id: input.id },
+          include: {
+            budgetProject: { select: { userId: true, name: true } },
+            expenses: { select: { id: true } },
+          },
+        });
+
+        if (!item || item.budgetProject.userId !== ctx.session.user.id) {
+          throw new Error("Item not found");
+        }
+
+        if (item.expenses.length > 0) {
+          throw new Error(
+            "Cannot delete budget item with linked expenses. Unlink all expenses first."
+          );
+        }
+
+        await ctx.prisma.budgetItem.delete({
+          where: { id: input.id },
+        });
+
+        await logActivity(
+          ctx.prisma,
+          ctx.session.user.id,
+          "deleted",
+          "budget_item",
+          `deleted budget item "${item.name}" from "${item.budgetProject.name}"`,
+          input.id,
+          undefined,
+          ctx.ws
+        );
+
+        return { deleted: true };
+      }),
+
+    // Link cashflow entry to budget item
+    linkExpense: protectedProcedure
+      .input(
+        z.object({
+          budgetItemId: z.string(),
+          cashflowEntryId: z.string(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        // Verify budget item belongs to user
+        const item = await ctx.prisma.budgetItem.findFirst({
+          where: { id: input.budgetItemId },
+          include: {
+            budgetProject: { select: { userId: true, name: true } },
+          },
+        });
+
+        if (!item || item.budgetProject.userId !== ctx.session.user.id) {
+          throw new Error("Budget item not found");
+        }
+
+        // Verify cashflow entry belongs to user
+        const cashflow = await ctx.prisma.cashflowEntry.findFirst({
+          where: {
+            id: input.cashflowEntryId,
+            userId: ctx.session.user.id,
+          },
+        });
+
+        if (!cashflow) {
+          throw new Error("Cashflow entry not found");
+        }
+
+        const expense = await ctx.prisma.budgetItemExpense.create({
+          data: {
+            budgetItemId: input.budgetItemId,
+            cashflowEntryId: input.cashflowEntryId,
+          },
+        });
+
+        await logActivity(
+          ctx.prisma,
+          ctx.session.user.id,
+          "linked",
+          "budget_item_expense",
+          `linked "${cashflow.description}" to budget item "${item.name}"`,
+          expense.id,
+          { budgetItemId: input.budgetItemId, cashflowEntryId: input.cashflowEntryId },
+          ctx.ws
+        );
+
+        return expense;
+      }),
+
+    // Unlink expense from budget item
+    unlinkExpense: protectedProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        // Verify expense belongs to user's project
+        const expense = await ctx.prisma.budgetItemExpense.findFirst({
+          where: { id: input.id },
+          include: {
+            budgetItem: {
+              include: {
+                budgetProject: { select: { userId: true } },
+              },
+            },
+            cashflowEntry: { select: { description: true } },
+          },
+        });
+
+        if (!expense || expense.budgetItem.budgetProject.userId !== ctx.session.user.id) {
+          throw new Error("Expense link not found");
+        }
+
+        await ctx.prisma.budgetItemExpense.delete({
+          where: { id: input.id },
+        });
+
+        await logActivity(
+          ctx.prisma,
+          ctx.session.user.id,
+          "unlinked",
+          "budget_item_expense",
+          `unlinked "${expense.cashflowEntry.description}" from budget item "${expense.budgetItem.name}"`,
+          input.id,
+          undefined,
+          ctx.ws
+        );
+
+        return { deleted: true };
+      }),
+
+    // Get unlinked cashflow entries (for linking dropdown)
+    getUnlinkedCashflows: protectedProcedure
+      .input(z.object({ budgetItemId: z.string() }))
+      .query(async ({ ctx, input }) => {
+        // Get already linked cashflow IDs for this budget item
+        const linkedExpenses = await ctx.prisma.budgetItemExpense.findMany({
+          where: { budgetItemId: input.budgetItemId },
+          select: { cashflowEntryId: true },
+        });
+        const linkedIds = linkedExpenses.map((e) => e.cashflowEntryId);
+
+        // Get all active cashflow entries not already linked to this item
+        const cashflows = await ctx.prisma.cashflowEntry.findMany({
+          where: {
+            userId: ctx.session.user.id,
+            isActive: true,
+            id: { notIn: linkedIds },
+          },
+          orderBy: { date: "desc" },
+          select: {
+            id: true,
+            description: true,
+            amount: true,
+            date: true,
+            category: true,
+            accountEntry: {
+              select: { account: true },
+            },
+          },
+        });
+
+        return cashflows.map((c) => ({
+          ...c,
+          amount: Number(c.amount),
+        }));
+      }),
+  }),
+
   // Cashflow entries (verified official transactions)
   cashflowEntries: router({
     list: protectedProcedure.query(async ({ ctx }) => {

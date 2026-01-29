@@ -12,6 +12,7 @@ model User {
   cashflowEntries CashflowEntry[]
   receipts        Receipt[]
   activityLogs    ActivityLog[]
+  budgetProjects  BudgetProject[]
 
   @@unique([email])
   @@map("user")
@@ -45,24 +46,25 @@ model AccountEntry {
 
 // Official cashflow transactions (verified from accounts)
 model CashflowEntry {
-  id                 String              @id @default(cuid())
-  userId             String
-  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  date               DateTime
-  description        String              // Official designation
-  category           String
-  amount             Decimal
-  currency           String              @default("PHP")
-  notes              String?
-  isActive           Boolean             @default(true)
-  archivedAt         DateTime?
+  id                  String              @id @default(cuid())
+  userId              String
+  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date                DateTime
+  description         String              // Official designation
+  category            String
+  amount              Decimal
+  currency            String              @default("PHP")
+  notes               String?
+  isActive            Boolean             @default(true)
+  archivedAt          DateTime?
   // Reference to the account entry this was verified from
-  accountEntryId     String?             @unique
-  accountEntry       AccountEntry?       @relation(fields: [accountEntryId], references: [id], onDelete: SetNull)
-  receipts           Receipt[]
-  receiptSubmissions ReceiptSubmission[]
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
+  accountEntryId      String?             @unique
+  accountEntry        AccountEntry?       @relation(fields: [accountEntryId], references: [id], onDelete: SetNull)
+  receipts            Receipt[]
+  receiptSubmissions  ReceiptSubmission[]
+  budgetItemExpenses  BudgetItemExpense[]
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
 
   @@index([userId])
   @@index([date])
@@ -152,6 +154,63 @@ model ActivityLog {
   @@index([createdAt])
   @@index([entityType])
   @@map("activity_log")
+}
+
+// Budget Planning - Projects/Events
+model BudgetProject {
+  id          String       @id @default(cuid())
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  category    String?      // User-typed category
+  eventDate   DateTime?    // When the event is planned to happen
+  status      String       @default("planned") // "planned" or "completed"
+  isActive    Boolean      @default(true)
+  archivedAt  DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  items       BudgetItem[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([isActive])
+  @@index([eventDate])
+  @@map("budget_project")
+}
+
+// Budget Items - Individual expense line items within a project
+model BudgetItem {
+  id              String              @id @default(cuid())
+  budgetProjectId String
+  budgetProject   BudgetProject       @relation(fields: [budgetProjectId], references: [id], onDelete: Cascade)
+  name            String
+  description     String?
+  estimatedAmount Decimal
+  notes           String?
+  isActive        Boolean             @default(true)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  expenses        BudgetItemExpense[]
+
+  @@index([budgetProjectId])
+  @@index([isActive])
+  @@map("budget_item")
+}
+
+// Links budget items to actual cashflow entries (actual spending)
+model BudgetItemExpense {
+  id              String        @id @default(cuid())
+  budgetItemId    String
+  budgetItem      BudgetItem    @relation(fields: [budgetItemId], references: [id], onDelete: Restrict)
+  cashflowEntryId String
+  cashflowEntry   CashflowEntry @relation(fields: [cashflowEntryId], references: [id], onDelete: Restrict)
+  createdAt       DateTime      @default(now())
+
+  @@unique([budgetItemId, cashflowEntryId]) // Prevent duplicate links
+  @@index([budgetItemId])
+  @@index([cashflowEntryId])
+  @@map("budget_item_expense")
 }
 
 // Public receipt submissions (no authentication required)

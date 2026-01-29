@@ -22,6 +22,7 @@ export const WS_EVENTS = {
   RECEIPT_UPDATED: "receipt:updated",
   ACTIVITY_LOGGED: "activity:logged",
   STATS_UPDATED: "stats:updated",
+  BUDGET_UPDATED: "budget:updated",
 } as const;
 
 export type WsEventType = (typeof WS_EVENTS)[keyof typeof WS_EVENTS];
@@ -29,7 +30,7 @@ export type WsEventType = (typeof WS_EVENTS)[keyof typeof WS_EVENTS];
 export interface WsEventPayload {
   event: WsEventType;
   entityId?: string;
-  action: "created" | "updated" | "archived" | "bound" | "unbound" | "deleted";
+  action: "created" | "updated" | "archived" | "bound" | "unbound" | "deleted" | "linked" | "completed";
   /** Optional message for toast notifications */
   message?: string;
 }
