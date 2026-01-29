@@ -10,11 +10,11 @@
     }
   },
   "scripts": {
-    "build": "prisma generate",
-    "db:push": "prisma db push",
-    "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev",
-    "db:studio": "prisma studio"
+    "build": "bun x prisma generate",
+    "db:push": "bun x prisma db push",
+    "db:generate": "bun x prisma generate",
+    "db:migrate": "bun x prisma migrate dev",
+    "db:studio": "bun x prisma studio"
   },
   "dependencies": {
     "@cisco-finance/env": "workspace:*",
