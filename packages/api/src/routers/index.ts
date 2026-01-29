@@ -4,6 +4,7 @@ import { protectedProcedure, publicProcedure, router } from "../index";
 import { WS_EVENTS, type WsEmitter, type Context } from "../context";
 import { teamRouter } from "./team";
 import { sendEmail } from "../services/email";
+import { env } from "@cisco-finance/env/server";
 
 const ACCOUNT_OPTIONS = ["GCash", "GoTyme", "Cash", "BPI"] as const;
 

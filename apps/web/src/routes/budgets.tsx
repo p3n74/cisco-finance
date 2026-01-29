@@ -574,7 +574,7 @@ function BudgetsRoute() {
               </div>
             </div>
             <DialogFooter className="mt-6">
-              <DialogClose>
+              <DialogClose asChild>
                 <Button type="button" variant="outline">Cancel</Button>
               </DialogClose>
               <Button type="submit" disabled={createProject.isPending}>
@@ -644,7 +644,7 @@ function BudgetsRoute() {
               </div>
             </div>
             <DialogFooter className="mt-6">
-              <DialogClose>
+              <DialogClose asChild>
                 <Button type="button" variant="outline">Cancel</Button>
               </DialogClose>
               <Button type="submit" disabled={updateProject.isPending}>
@@ -721,7 +721,7 @@ function BudgetsRoute() {
               />
             </div>
             <DialogFooter className="mt-6">
-              <DialogClose>
+              <DialogClose asChild>
                 <Button type="button" variant="outline">Cancel</Button>
               </DialogClose>
               <Button type="submit" disabled={createItem.isPending}>
@@ -792,7 +792,7 @@ function BudgetsRoute() {
               />
             </div>
             <DialogFooter className="mt-6">
-              <DialogClose>
+              <DialogClose asChild>
                 <Button type="button" variant="outline">Cancel</Button>
               </DialogClose>
               <Button type="submit" disabled={updateItem.isPending}>
@@ -835,10 +835,12 @@ function BudgetsRoute() {
                 </p>
               )}
             </div>
-            <DialogFooter>
-              <DialogClose>
-                <Button type="button" variant="outline">Cancel</Button>
-              </DialogClose>
+                      <DialogFooter>
+                        <DialogClose asChild>
+                          <Button type="button" variant="outline">
+                            Cancel
+                          </Button>
+                        </DialogClose>
               <Button
                 onClick={() => {
                   if (linkingToItemId && selectedCashflowId) {

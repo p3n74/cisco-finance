@@ -364,7 +364,7 @@ function ReceiptsRoute() {
             </div>
           </div>
           <DialogFooter className="mt-6">
-            <DialogClose>
+            <DialogClose asChild>
               <Button variant="outline">Cancel</Button>
             </DialogClose>
             <Button
@@ -573,7 +573,7 @@ function ReceiptsRoute() {
             <div className="py-8 text-center text-muted-foreground">Receipt not found</div>
           )}
           <DialogFooter className="mt-6">
-            <DialogClose>
+            <DialogClose asChild>
               <Button variant="outline">Close</Button>
             </DialogClose>
           </DialogFooter>
@@ -604,7 +604,7 @@ function ReceiptsRoute() {
             </div>
           </div>
           <DialogFooter className="mt-6">
-            <DialogClose>
+            <DialogClose asChild>
               <Button variant="outline">Cancel</Button>
             </DialogClose>
             <Button

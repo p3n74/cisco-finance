@@ -332,7 +332,7 @@ function RouteComponent() {
                 )}
 
                 <DialogFooter className="mt-6">
-                  <DialogClose>
+                  <DialogClose asChild>
                     <Button type="button" variant="outline">
                       Cancel
                     </Button>
@@ -726,7 +726,7 @@ function RouteComponent() {
           )}
 
           <DialogFooter className="mt-6">
-            <DialogClose>
+            <DialogClose asChild>
               <Button variant="outline">Close</Button>
             </DialogClose>
             <Button onClick={() => {
@@ -800,7 +800,7 @@ function RouteComponent() {
                   )}
                 </div>
                 <DialogFooter>
-                  <DialogClose>
+                  <DialogClose asChild>
                     <Button type="button" variant="outline">
                       Cancel
                     </Button>
@@ -885,7 +885,7 @@ function RouteComponent() {
                   )}
                 </div>
                 <DialogFooter>
-                  <DialogClose>
+                  <DialogClose asChild>
                     <Button type="button" variant="outline">
                       Cancel
                     </Button>

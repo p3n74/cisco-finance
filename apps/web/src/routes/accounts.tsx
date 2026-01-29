@@ -185,7 +185,7 @@ function AccountsRoute() {
                 />
               </div>
               <DialogFooter className="mt-6">
-                <DialogClose>
+                <DialogClose asChild>
                   <Button type="button" variant="outline">
                     Cancel
                   </Button>
