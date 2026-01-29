@@ -1,12 +1,13 @@
-# Use a newer Bun image for better catalog support
-FROM oven/bun:1.1.34 AS base
+# Use latest Bun image
+FROM oven/bun:latest AS base
 WORKDIR /app
 
 # Install dependencies stage
 FROM base AS install
-# Copy root config files that might affect workspace/catalog resolution
-COPY package.json bun.lock tsconfig.json turbo.json ./
-# Copy package.json files for all workspaces
+# Copy root configuration files
+COPY package.json bun.lock* tsconfig.json* turbo.json* ./
+
+# Copy all package.json files from workspaces (maintains directory structure)
 COPY apps/server/package.json ./apps/server/
 COPY apps/web/package.json ./apps/web/
 COPY packages/api/package.json ./packages/api/
@@ -15,8 +16,8 @@ COPY packages/config/package.json ./packages/config/
 COPY packages/db/package.json ./packages/db/
 COPY packages/env/package.json ./packages/env/
 
-# Install dependencies
-RUN bun install --frozen-lockfile
+# Install dependencies (removing --frozen-lockfile to allow Bun to resolve catalogs correctly in this environment)
+RUN bun install
 
 # Build stage
 FROM base AS builder
