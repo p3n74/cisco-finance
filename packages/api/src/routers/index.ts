@@ -288,6 +288,8 @@ export const appRouter = router({
           cashflowEntryId: true,
           boundAt: true,
           boundBy: true,
+          reimbursedAt: true,
+          reimbursedBy: true,
           createdAt: true,
           cashflowEntry: {
             select: {
@@ -648,6 +650,42 @@ export const appRouter = router({
         );
 
         return { success: true, message: "Endorsement sent to treasurer" };
+      }),
+    // Mark receipt as reimbursed (Treasurer only)
+    markAsReimbursed: protectedProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        if (ctx.userRole !== "TREASURER") {
+          throw new Error("Only the Treasurer can mark receipts as reimbursed");
+        }
+
+        const submission = await ctx.prisma.receiptSubmission.update({
+          where: { id: input.id },
+          data: {
+            reimbursedAt: new Date(),
+            reimbursedBy: ctx.session.user.id,
+          },
+        });
+
+        await logActivity(
+          ctx.prisma,
+          ctx.session.user.id,
+          "reimbursed",
+          "receipt_submission",
+          `marked receipt from ${submission.submitterName} as reimbursed`,
+          submission.id,
+          { purpose: submission.purpose },
+          ctx.ws
+        );
+
+        // Emit update
+        ctx.ws?.emitToAll({
+          event: WS_EVENTS.RECEIPT_UPDATED,
+          action: "updated",
+          entityId: submission.id,
+        });
+
+        return { success: true };
       }),
   }),
 

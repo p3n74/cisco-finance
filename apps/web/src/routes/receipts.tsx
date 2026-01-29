@@ -62,6 +62,10 @@ function ReceiptsRoute() {
   );
   const viewQuery = useQuery(viewQueryOptions);
 
+  const roleQueryOptions = trpc.team.getMyRole.queryOptions();
+  const roleQuery = useQuery(roleQueryOptions);
+  const userRole = roleQuery.data?.role;
+
   const bindMutation = useMutation(
     trpc.receiptSubmission.bind.mutationOptions({
       onSuccess: () => {
@@ -97,6 +101,19 @@ function ReceiptsRoute() {
     })
   );
 
+  const markAsReimbursedMutation = useMutation(
+    trpc.receiptSubmission.markAsReimbursed.mutationOptions({
+      onSuccess: () => {
+        toast.success("Receipt marked as reimbursed");
+        queryClient.invalidateQueries({ queryKey: listQueryOptions.queryKey });
+        queryClient.invalidateQueries({ queryKey: viewQueryOptions.queryKey });
+      },
+      onError: (error) => {
+        toast.error(error.message || "Failed to mark as reimbursed");
+      },
+    })
+  );
+
   const submissions = submissionsQuery.data ?? [];
   const cashflowEntries = cashflowQuery.data?.filter((e) => e.isActive) ?? [];
 
@@ -114,7 +131,7 @@ function ReceiptsRoute() {
   );
 
   const unboundCount = submissions.filter((s) => !s.isBound).length;
-  const reimbursementCount = submissions.filter((s) => s.needsReimbursement).length;
+  const reimbursementCount = submissions.filter((s) => s.needsReimbursement && !s.reimbursedAt).length;
 
   const bindingSubmission = submissions.find((s) => s.id === bindingId);
 
@@ -228,11 +245,15 @@ function ReceiptsRoute() {
                               Unbound
                             </span>
                           )}
-                          {submission.needsReimbursement && (
+                          {submission.reimbursedAt ? (
+                            <span className="inline-flex items-center rounded-full bg-purple-500/10 px-2.5 py-1 text-xs font-medium text-purple-600 dark:text-purple-400 w-fit">
+                              Reimbursed
+                            </span>
+                          ) : submission.needsReimbursement ? (
                             <span className="inline-flex items-center rounded-full bg-blue-500/10 px-2.5 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 w-fit">
                               Needs Reimbursement
                             </span>
-                          )}
+                          ) : null}
                         </div>
                       </td>
                       <td className="px-5 py-4">
@@ -409,11 +430,15 @@ function ReceiptsRoute() {
                         Unbound
                       </span>
                     )}
-                    {viewQuery.data.needsReimbursement && (
+                    {viewQuery.data.reimbursedAt ? (
+                      <span className="inline-flex items-center rounded-full bg-purple-500/10 px-2.5 py-1 text-xs font-medium text-purple-600 dark:text-purple-400">
+                        Reimbursed
+                      </span>
+                    ) : viewQuery.data.needsReimbursement ? (
                       <span className="inline-flex items-center rounded-full bg-blue-500/10 px-2.5 py-1 text-xs font-medium text-blue-600 dark:text-blue-400">
                         Needs Reimbursement
                       </span>
-                    )}
+                    ) : null}
                   </div>
                 </div>
                 {viewQuery.data.cashflowEntry && (
@@ -523,7 +548,7 @@ function ReceiptsRoute() {
               )}
               
               {/* Endorse Button */}
-              {viewQuery.data.needsReimbursement && (
+              {viewQuery.data.needsReimbursement && !viewQuery.data.reimbursedAt && (
                 <div className="flex gap-2 pt-4 border-t">
                   <Button
                     className="flex-1 bg-green-600 hover:bg-green-700 text-white"
@@ -531,6 +556,16 @@ function ReceiptsRoute() {
                   >
                     Endorse for Reimbursement
                   </Button>
+                  
+                  {userRole === "TREASURER" && (
+                    <Button
+                      className="flex-1 bg-purple-600 hover:bg-purple-700 text-white"
+                      onClick={() => markAsReimbursedMutation.mutate({ id: viewQuery.data!.id })}
+                      disabled={markAsReimbursedMutation.isPending}
+                    >
+                      {markAsReimbursedMutation.isPending ? "Marking..." : "Mark as Reimbursed"}
+                    </Button>
+                  )}
                 </div>
               )}
             </div>
