@@ -94,7 +94,7 @@ export const appRouter = router({
         recentActivity,
       ] = await Promise.all([
         ctx.prisma.cashflowEntry.aggregate({
-          where: { userId: ctx.session.user.id, isActive: true },
+          where: { isActive: true },
           _sum: { amount: true },
           _count: true,
         }),
@@ -103,7 +103,6 @@ export const appRouter = router({
         }),
         ctx.prisma.accountEntry.count({
           where: {
-            userId: ctx.session.user.id,
             isActive: true,
             cashflowEntry: null,
           },
@@ -118,11 +117,11 @@ export const appRouter = router({
       // Get inflow/outflow
       const [inflow, outflow] = await Promise.all([
         ctx.prisma.cashflowEntry.aggregate({
-          where: { userId: ctx.session.user.id, isActive: true, amount: { gte: 0 } },
+          where: { isActive: true, amount: { gte: 0 } },
           _sum: { amount: true },
         }),
         ctx.prisma.cashflowEntry.aggregate({
-          where: { userId: ctx.session.user.id, isActive: true, amount: { lt: 0 } },
+          where: { isActive: true, amount: { lt: 0 } },
           _sum: { amount: true },
         }),
       ]);
@@ -453,9 +452,6 @@ export const appRouter = router({
   accountEntries: router({
     list: protectedProcedure.query(async ({ ctx }) => {
       const entries = await ctx.prisma.accountEntry.findMany({
-        where: {
-          userId: ctx.session.user.id,
-        },
         orderBy: {
           date: "desc",
         },
@@ -483,7 +479,6 @@ export const appRouter = router({
     listUnverified: protectedProcedure.query(async ({ ctx }) => {
       const entries = await ctx.prisma.accountEntry.findMany({
         where: {
-          userId: ctx.session.user.id,
           isActive: true,
           cashflowEntry: null, // Not yet verified
         },
@@ -566,7 +561,6 @@ export const appRouter = router({
         const result = await ctx.prisma.accountEntry.updateMany({
           where: {
             id: input.id,
-            userId: ctx.session.user.id,
           },
           data: {
             date: input.date,
@@ -601,7 +595,6 @@ export const appRouter = router({
         const result = await ctx.prisma.accountEntry.updateMany({
           where: {
             id: input.id,
-            userId: ctx.session.user.id,
           },
           data: {
             isActive: false,
@@ -643,7 +636,6 @@ export const appRouter = router({
     list: protectedProcedure.query(async ({ ctx }) => {
       const projects = await ctx.prisma.budgetProject.findMany({
         where: {
-          userId: ctx.session.user.id,
           isActive: true,
         },
         orderBy: [
@@ -734,7 +726,6 @@ export const appRouter = router({
         const project = await ctx.prisma.budgetProject.findFirst({
           where: {
             id: input.id,
-            userId: ctx.session.user.id,
           },
           include: {
             items: {
@@ -872,7 +863,6 @@ export const appRouter = router({
         const result = await ctx.prisma.budgetProject.updateMany({
           where: {
             id,
-            userId: ctx.session.user.id,
           },
           data,
         });
@@ -900,13 +890,12 @@ export const appRouter = router({
       .input(z.object({ id: z.string() }))
       .mutation(async ({ ctx, input }) => {
         const project = await ctx.prisma.budgetProject.findFirst({
-          where: { id: input.id, userId: ctx.session.user.id },
+          where: { id: input.id },
         });
 
         const result = await ctx.prisma.budgetProject.updateMany({
           where: {
             id: input.id,
-            userId: ctx.session.user.id,
           },
           data: {
             isActive: false,
@@ -934,7 +923,6 @@ export const appRouter = router({
     overview: protectedProcedure.query(async ({ ctx }) => {
       const projects = await ctx.prisma.budgetProject.findMany({
         where: {
-          userId: ctx.session.user.id,
           isActive: true,
         },
         include: {
@@ -1258,9 +1246,6 @@ export const appRouter = router({
   cashflowEntries: router({
     list: protectedProcedure.query(async ({ ctx }) => {
       const entries = await ctx.prisma.cashflowEntry.findMany({
-        where: {
-          userId: ctx.session.user.id,
-        },
         orderBy: {
           date: "desc",
         },
@@ -1297,7 +1282,7 @@ export const appRouter = router({
       .input(z.object({ id: z.string() }))
       .query(async ({ ctx, input }) => {
         const entry = await ctx.prisma.cashflowEntry.findUnique({
-          where: { id: input.id, userId: ctx.session.user.id },
+          where: { id: input.id },
           include: {
             receiptSubmissions: {
               select: {
@@ -1384,7 +1369,6 @@ export const appRouter = router({
         const result = await ctx.prisma.cashflowEntry.updateMany({
           where: {
             id: input.id,
-            userId: ctx.session.user.id,
           },
           data: {
             isActive: false,
