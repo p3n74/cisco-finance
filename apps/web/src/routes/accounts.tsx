@@ -24,9 +24,9 @@ export const Route = createFileRoute("/accounts")({
 const ACCOUNT_OPTIONS = ["GCash", "GoTyme", "Cash", "BPI"] as const;
 
 const formatCurrency = (value: number) =>
-  new Intl.NumberFormat("en-US", {
+  new Intl.NumberFormat("en-PH", {
     style: "currency",
-    currency: "USD",
+    currency: "PHP",
     maximumFractionDigits: 2,
   }).format(value);
 

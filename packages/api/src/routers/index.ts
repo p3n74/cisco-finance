@@ -93,6 +93,7 @@ export const appRouter = router({
         totalCashflow,
         unboundReceipts,
         unverifiedTransactions,
+        pendingVerificationData,
         recentActivity,
       ] = await Promise.all([
         ctx.prisma.cashflowEntry.aggregate({
@@ -108,6 +109,13 @@ export const appRouter = router({
             isActive: true,
             cashflowEntry: null,
           },
+        }),
+        ctx.prisma.accountEntry.aggregate({
+          where: {
+            isActive: true,
+            cashflowEntry: null,
+          },
+          _sum: { amount: true },
         }),
         ctx.prisma.activityLog.count({
           where: {
@@ -128,13 +136,18 @@ export const appRouter = router({
         }),
       ]);
 
+      const netCashflow = Number(totalCashflow._sum.amount ?? 0);
+      const pendingVerificationAmount = Number(pendingVerificationData._sum.amount ?? 0);
+
       return {
         totalTransactions: totalCashflow._count,
-        netCashflow: Number(totalCashflow._sum.amount ?? 0),
+        netCashflow,
         totalInflow: Number(inflow._sum.amount ?? 0),
         totalOutflow: Math.abs(Number(outflow._sum.amount ?? 0)),
-        unboundReceipts,
-        unverifiedTransactions,
+        pendingReceipts: unboundReceipts,
+        unverifiedTransactionsCount: unverifiedTransactions,
+        pendingVerificationAmount,
+        projectedCashflow: netCashflow + pendingVerificationAmount,
         recentActivityCount: recentActivity,
       };
     }),

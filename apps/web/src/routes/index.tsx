@@ -41,15 +41,20 @@ function SignedInHome() {
   const navigate = useNavigate();
 
   const statsQuery = useQuery(trpc.overview.stats.queryOptions());
+  const budgetOverviewQuery = useQuery(trpc.budgetProjects.overview.queryOptions());
   const activityQuery = useQuery(trpc.activityLog.list.queryOptions({ limit: 20 }));
 
   const stats = statsQuery.data;
+  const budgetOverview = budgetOverviewQuery.data;
   const activities = activityQuery.data ?? [];
 
+  const netCashflow = stats?.netCashflow ?? 0;
+  const projectedCashflow = netCashflow - (budgetOverview?.totalBudget ?? 0);
+
   const formatCurrency = (value: number) =>
-    new Intl.NumberFormat("en-US", {
+    new Intl.NumberFormat("en-PH", {
       style: "currency",
-      currency: "USD",
+      currency: "PHP",
       maximumFractionDigits: 2,
     }).format(value);
 
@@ -126,45 +131,47 @@ function SignedInHome() {
           </CardHeader>
           <CardContent>
             <p className="text-xs text-muted-foreground">
-              {stats?.totalTransactions ?? 0} transactions
+              Current verified balance
             </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Total Inflow</CardDescription>
-            <CardTitle className="text-2xl text-emerald-500">
-              {stats ? formatCurrency(stats.totalInflow) : "—"}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-muted-foreground">All time</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Total Outflow</CardDescription>
-            <CardTitle className="text-2xl text-rose-500">
-              {stats ? formatCurrency(stats.totalOutflow) : "—"}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-muted-foreground">All time</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Pending Items</CardDescription>
+            <CardDescription>Pending Receipts</CardDescription>
             <CardTitle className="text-2xl text-amber-500">
-              {(stats?.unboundReceipts ?? 0) + (stats?.unverifiedTransactions ?? 0)}
+              {stats?.pendingReceipts ?? 0}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-muted-foreground">Unbound submissions</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Pending Verification</CardDescription>
+            <CardTitle className="text-2xl text-amber-500">
+              {stats ? formatCurrency(stats.pendingVerificationAmount) : "—"}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-xs text-muted-foreground">
-              {stats?.unboundReceipts ?? 0} receipts, {stats?.unverifiedTransactions ?? 0} unverified
+              {stats?.unverifiedTransactionsCount ?? 0} transactions
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Projected Cashflow</CardDescription>
+            <CardTitle className={`text-2xl ${projectedCashflow >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
+              {stats ? formatCurrency(projectedCashflow) : "—"}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-muted-foreground">
+              Balance after planned events
             </p>
           </CardContent>
         </Card>
@@ -208,9 +215,9 @@ function SignedInHome() {
                 R
               </span>
               View Receipts
-              {(stats?.unboundReceipts ?? 0) > 0 && (
+              {(stats?.pendingReceipts ?? 0) > 0 && (
                 <span className="ml-auto rounded-full bg-amber-500 px-2 py-0.5 text-xs font-medium text-white">
-                  {stats?.unboundReceipts}
+                  {stats?.pendingReceipts}
                 </span>
               )}
             </Button>

@@ -202,9 +202,9 @@ function RouteComponent() {
   const deficitRatio = totalActivity === 0 ? 0 : unverifiedAmount / totalActivity;
 
   const formatCurrency = (value: number) =>
-    new Intl.NumberFormat("en-US", {
+    new Intl.NumberFormat("en-PH", {
       style: "currency",
-      currency: "USD",
+      currency: "PHP",
       maximumFractionDigits: 2,
     }).format(value);
 
@@ -392,7 +392,7 @@ function RouteComponent() {
             <CardDescription>Projected Cashflow</CardDescription>
             <CardTitle
               className={`text-2xl ${
-                projectedCashflow >= 0 ? "text-foreground" : "text-rose-500"
+                projectedCashflow >= 0 ? "text-emerald-500" : "text-rose-500"
               }`}
             >
               {formatCurrency(projectedCashflow)}
