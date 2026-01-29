@@ -244,7 +244,7 @@ export const appRouter = router({
                     </div>
                     
                     <div style="text-align: center; margin-top: 30px;">
-                      <a href="${process.env.BETTER_AUTH_URL || "#"}" style="background-color: #3182ce; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">View in Dashboard</a>
+                      <a href="${env.CORS_ORIGIN || "#"}" style="background-color: #3182ce; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">View in Dashboard</a>
                     </div>
                   </div>
                   
@@ -626,7 +626,7 @@ export const appRouter = router({
                 ${qrCodeHtml}
                 
                 <div style="text-align: center; margin-top: 30px;">
-                  <a href="${process.env.BETTER_AUTH_URL || "#"}" style="background-color: #38a169; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">View in Dashboard</a>
+                  <a href="${env.CORS_ORIGIN || "#"}" style="background-color: #38a169; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">View in Dashboard</a>
                 </div>
               </div>
               
@@ -700,7 +700,7 @@ export const appRouter = router({
                   </div>
                   
                   <div style="text-align: center; margin-top: 30px;">
-                    <a href="${process.env.BETTER_AUTH_URL || "#"}" style="background-color: #805ad5; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">View in Dashboard</a>
+                    <a href="${env.CORS_ORIGIN || "#"}" style="background-color: #805ad5; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">View in Dashboard</a>
                   </div>
                 </div>
                 
