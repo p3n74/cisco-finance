@@ -11,6 +11,7 @@ model User {
   accountEntries  AccountEntry[]
   cashflowEntries CashflowEntry[]
   receipts        Receipt[]
+  activityLogs    ActivityLog[]
 
   @@unique([email])
   @@map("user")
@@ -44,23 +45,24 @@ model AccountEntry {
 
 // Official cashflow transactions (verified from accounts)
 model CashflowEntry {
-  id             String        @id @default(cuid())
-  userId         String
-  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  date           DateTime
-  description    String        // Official designation
-  category       String
-  amount         Decimal
-  currency       String        @default("PHP")
-  notes          String?
-  isActive       Boolean       @default(true)
-  archivedAt     DateTime?
+  id                 String              @id @default(cuid())
+  userId             String
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date               DateTime
+  description        String              // Official designation
+  category           String
+  amount             Decimal
+  currency           String              @default("PHP")
+  notes              String?
+  isActive           Boolean             @default(true)
+  archivedAt         DateTime?
   // Reference to the account entry this was verified from
-  accountEntryId String?       @unique
-  accountEntry   AccountEntry? @relation(fields: [accountEntryId], references: [id], onDelete: SetNull)
-  receipts       Receipt[]
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  accountEntryId     String?             @unique
+  accountEntry       AccountEntry?       @relation(fields: [accountEntryId], references: [id], onDelete: SetNull)
+  receipts           Receipt[]
+  receiptSubmissions ReceiptSubmission[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
 
   @@index([userId])
   @@index([date])
@@ -132,4 +134,43 @@ model Verification {
 
   @@index([identifier])
   @@map("verification")
+}
+
+// Activity log for tracking user actions
+model ActivityLog {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action      String   // e.g., "created", "verified", "bound", "unbound", "archived"
+  entityType  String   // e.g., "cashflow_entry", "account_entry", "receipt_submission"
+  entityId    String?
+  description String   // Human-readable description
+  metadata    String?  @db.Text // JSON string for additional context
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+  @@index([entityType])
+  @@map("activity_log")
+}
+
+// Public receipt submissions (no authentication required)
+model ReceiptSubmission {
+  id              String         @id @default(cuid())
+  submitterName   String
+  purpose         String         // What the receipt is for
+  imageData       String         @db.Text // Base64 encoded image
+  imageType       String         // MIME type (image/jpeg, image/png, etc.)
+  notes           String?
+  // Link to cashflow entry when bound
+  cashflowEntryId String?
+  cashflowEntry   CashflowEntry? @relation(fields: [cashflowEntryId], references: [id], onDelete: SetNull)
+  boundAt         DateTime?
+  boundBy         String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([cashflowEntryId])
+  @@index([createdAt])
+  @@map("receipt_submission")
 }

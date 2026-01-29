@@ -1,8 +1,31 @@
 import { z } from "zod";
+import type { PrismaClient } from "@prisma/client";
 
 import { protectedProcedure, publicProcedure, router } from "../index";
 
 const ACCOUNT_OPTIONS = ["GCash", "GoTyme", "Cash", "BPI"] as const;
+
+// Helper function to create activity logs
+async function logActivity(
+  prisma: PrismaClient,
+  userId: string,
+  action: string,
+  entityType: string,
+  description: string,
+  entityId?: string,
+  metadata?: Record<string, unknown>
+) {
+  await prisma.activityLog.create({
+    data: {
+      userId,
+      action,
+      entityType,
+      entityId,
+      description,
+      metadata: metadata ? JSON.stringify(metadata) : null,
+    },
+  });
+}
 
 export const appRouter = router({
   healthCheck: publicProcedure.query(() => {
@@ -13,6 +36,310 @@ export const appRouter = router({
       message: "This is private",
       user: ctx.session.user,
     };
+  }),
+
+  // Activity log
+  activityLog: router({
+    list: protectedProcedure
+      .input(
+        z.object({
+          limit: z.number().min(1).max(100).optional().default(50),
+        }).optional()
+      )
+      .query(async ({ ctx, input }) => {
+        const logs = await ctx.prisma.activityLog.findMany({
+          take: input?.limit ?? 50,
+          orderBy: { createdAt: "desc" },
+          include: {
+            user: {
+              select: { id: true, name: true, image: true },
+            },
+          },
+        });
+        return logs.map((log) => ({
+          id: log.id,
+          action: log.action,
+          entityType: log.entityType,
+          entityId: log.entityId,
+          description: log.description,
+          metadata: log.metadata ? JSON.parse(log.metadata) : null,
+          createdAt: log.createdAt,
+          user: log.user,
+        }));
+      }),
+  }),
+
+  // Dashboard overview stats
+  overview: router({
+    stats: protectedProcedure.query(async ({ ctx }) => {
+      const [
+        totalCashflow,
+        unboundReceipts,
+        unverifiedTransactions,
+        recentActivity,
+      ] = await Promise.all([
+        ctx.prisma.cashflowEntry.aggregate({
+          where: { userId: ctx.session.user.id, isActive: true },
+          _sum: { amount: true },
+          _count: true,
+        }),
+        ctx.prisma.receiptSubmission.count({
+          where: { cashflowEntryId: null },
+        }),
+        ctx.prisma.accountEntry.count({
+          where: {
+            userId: ctx.session.user.id,
+            isActive: true,
+            cashflowEntry: null,
+          },
+        }),
+        ctx.prisma.activityLog.count({
+          where: {
+            createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
+          },
+        }),
+      ]);
+
+      // Get inflow/outflow
+      const [inflow, outflow] = await Promise.all([
+        ctx.prisma.cashflowEntry.aggregate({
+          where: { userId: ctx.session.user.id, isActive: true, amount: { gte: 0 } },
+          _sum: { amount: true },
+        }),
+        ctx.prisma.cashflowEntry.aggregate({
+          where: { userId: ctx.session.user.id, isActive: true, amount: { lt: 0 } },
+          _sum: { amount: true },
+        }),
+      ]);
+
+      return {
+        totalTransactions: totalCashflow._count,
+        netCashflow: Number(totalCashflow._sum.amount ?? 0),
+        totalInflow: Number(inflow._sum.amount ?? 0),
+        totalOutflow: Math.abs(Number(outflow._sum.amount ?? 0)),
+        unboundReceipts,
+        unverifiedTransactions,
+        recentActivityCount: recentActivity,
+      };
+    }),
+  }),
+
+  // Public receipt submission (no auth required)
+  receiptSubmission: router({
+    submit: publicProcedure
+      .input(
+        z.object({
+          submitterName: z.string().min(2, "Name must be at least 2 characters"),
+          purpose: z.string().min(5, "Please describe what this receipt is for"),
+          imageData: z.string().min(1, "Please upload a receipt image"),
+          imageType: z.string().min(1, "Image type is required"),
+          notes: z.string().optional(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const submission = await ctx.prisma.receiptSubmission.create({
+          data: {
+            submitterName: input.submitterName,
+            purpose: input.purpose,
+            imageData: input.imageData,
+            imageType: input.imageType,
+            notes: input.notes,
+          },
+        });
+        return { id: submission.id, message: "Receipt submitted successfully" };
+      }),
+    // Admin: list all submissions
+    list: protectedProcedure.query(async ({ ctx }) => {
+      const submissions = await ctx.prisma.receiptSubmission.findMany({
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          submitterName: true,
+          purpose: true,
+          imageType: true,
+          notes: true,
+          cashflowEntryId: true,
+          boundAt: true,
+          boundBy: true,
+          createdAt: true,
+          cashflowEntry: {
+            select: {
+              id: true,
+              description: true,
+              amount: true,
+              date: true,
+            },
+          },
+        },
+      });
+      return submissions.map((s) => ({
+        ...s,
+        isBound: !!s.cashflowEntryId,
+        cashflowEntry: s.cashflowEntry
+          ? {
+              ...s.cashflowEntry,
+              amount: Number(s.cashflowEntry.amount),
+            }
+          : null,
+      }));
+    }),
+    // Admin: get single submission with image
+    getById: protectedProcedure
+      .input(z.object({ id: z.string() }))
+      .query(async ({ ctx, input }) => {
+        const submission = await ctx.prisma.receiptSubmission.findUnique({
+          where: { id: input.id },
+          include: {
+            cashflowEntry: {
+              select: {
+                id: true,
+                description: true,
+                amount: true,
+                date: true,
+              },
+            },
+          },
+        });
+        if (!submission) return null;
+        return {
+          ...submission,
+          isBound: !!submission.cashflowEntryId,
+          cashflowEntry: submission.cashflowEntry
+            ? {
+                ...submission.cashflowEntry,
+                amount: Number(submission.cashflowEntry.amount),
+              }
+            : null,
+        };
+      }),
+    // Bind receipt to a cashflow entry
+    bind: protectedProcedure
+      .input(
+        z.object({
+          id: z.string(),
+          cashflowEntryId: z.string(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const [receipt, cashflow] = await Promise.all([
+          ctx.prisma.receiptSubmission.findUnique({ where: { id: input.id } }),
+          ctx.prisma.cashflowEntry.findUnique({ where: { id: input.cashflowEntryId } }),
+        ]);
+        
+        const result = await ctx.prisma.receiptSubmission.update({
+          where: { id: input.id },
+          data: {
+            cashflowEntryId: input.cashflowEntryId,
+            boundAt: new Date(),
+            boundBy: ctx.session.user.id,
+          },
+        });
+
+        await logActivity(
+          ctx.prisma,
+          ctx.session.user.id,
+          "bound",
+          "receipt_submission",
+          `bound receipt from ${receipt?.submitterName} to "${cashflow?.description}"`,
+          input.id,
+          { cashflowEntryId: input.cashflowEntryId, purpose: receipt?.purpose }
+        );
+
+        return result;
+      }),
+    // Unbind receipt from cashflow entry
+    unbind: protectedProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const receipt = await ctx.prisma.receiptSubmission.findUnique({
+          where: { id: input.id },
+          include: { cashflowEntry: { select: { description: true } } },
+        });
+
+        const result = await ctx.prisma.receiptSubmission.update({
+          where: { id: input.id },
+          data: {
+            cashflowEntryId: null,
+            boundAt: null,
+            boundBy: null,
+          },
+        });
+
+        await logActivity(
+          ctx.prisma,
+          ctx.session.user.id,
+          "unbound",
+          "receipt_submission",
+          `unbound receipt from ${receipt?.submitterName} from "${receipt?.cashflowEntry?.description}"`,
+          input.id,
+          { purpose: receipt?.purpose }
+        );
+
+        return result;
+      }),
+    // Count unbound submissions
+    countUnbound: protectedProcedure.query(async ({ ctx }) => {
+      const count = await ctx.prisma.receiptSubmission.count({
+        where: { cashflowEntryId: null },
+      });
+      return { count };
+    }),
+    // List unbound submissions (for binding dialog)
+    listUnbound: protectedProcedure.query(async ({ ctx }) => {
+      const submissions = await ctx.prisma.receiptSubmission.findMany({
+        where: { cashflowEntryId: null },
+        orderBy: { createdAt: "desc" },
+        select: {
+          id: true,
+          submitterName: true,
+          purpose: true,
+          createdAt: true,
+        },
+      });
+      return submissions;
+    }),
+    // Submit and bind in one operation (for direct upload from transaction)
+    submitAndBind: protectedProcedure
+      .input(
+        z.object({
+          submitterName: z.string().min(2, "Name must be at least 2 characters"),
+          purpose: z.string().min(5, "Please describe what this receipt is for"),
+          imageData: z.string().min(1, "Please upload a receipt image"),
+          imageType: z.string().min(1, "Image type is required"),
+          notes: z.string().optional(),
+          cashflowEntryId: z.string(),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const cashflow = await ctx.prisma.cashflowEntry.findUnique({
+          where: { id: input.cashflowEntryId },
+        });
+
+        const submission = await ctx.prisma.receiptSubmission.create({
+          data: {
+            submitterName: input.submitterName,
+            purpose: input.purpose,
+            imageData: input.imageData,
+            imageType: input.imageType,
+            notes: input.notes,
+            cashflowEntryId: input.cashflowEntryId,
+            boundAt: new Date(),
+            boundBy: ctx.session.user.id,
+          },
+        });
+
+        await logActivity(
+          ctx.prisma,
+          ctx.session.user.id,
+          "uploaded",
+          "receipt_submission",
+          `uploaded and bound receipt for "${input.purpose}" to "${cashflow?.description}"`,
+          submission.id,
+          { cashflowEntryId: input.cashflowEntryId, purpose: input.purpose }
+        );
+
+        return { id: submission.id, message: "Receipt uploaded and bound successfully" };
+      }),
   }),
 
   // Account entries (treasury ledger)
@@ -82,7 +409,7 @@ export const appRouter = router({
         }),
       )
       .mutation(async ({ ctx, input }) => {
-        return ctx.prisma.accountEntry.create({
+        const entry = await ctx.prisma.accountEntry.create({
           data: {
             userId: ctx.session.user.id,
             date: input.date,
@@ -93,6 +420,18 @@ export const appRouter = router({
             notes: input.notes,
           },
         });
+
+        await logActivity(
+          ctx.prisma,
+          ctx.session.user.id,
+          "created",
+          "account_entry",
+          `added ${input.account} transaction "${input.description}" for ${input.amount >= 0 ? "+" : ""}${input.amount}`,
+          entry.id,
+          { account: input.account, amount: input.amount }
+        );
+
+        return entry;
       }),
     update: protectedProcedure
       .input(
@@ -122,6 +461,10 @@ export const appRouter = router({
     archive: protectedProcedure
       .input(z.object({ id: z.string().min(1) }))
       .mutation(async ({ ctx, input }) => {
+        const entry = await ctx.prisma.accountEntry.findUnique({
+          where: { id: input.id },
+        });
+
         const result = await ctx.prisma.accountEntry.updateMany({
           where: {
             id: input.id,
@@ -132,6 +475,18 @@ export const appRouter = router({
             archivedAt: new Date(),
           },
         });
+
+        if (result.count > 0) {
+          await logActivity(
+            ctx.prisma,
+            ctx.session.user.id,
+            "archived",
+            "account_entry",
+            `archived ${entry?.account} transaction "${entry?.description}"`,
+            input.id
+          );
+        }
+
         return { updated: result.count };
       }),
   }),
@@ -150,6 +505,9 @@ export const appRouter = router({
           receipts: {
             select: { id: true },
           },
+          receiptSubmissions: {
+            select: { id: true },
+          },
           accountEntry: {
             select: { id: true, description: true, account: true },
           },
@@ -166,11 +524,35 @@ export const appRouter = router({
         notes: entry.notes,
         isActive: entry.isActive,
         archivedAt: entry.archivedAt,
-        receiptsCount: entry.receipts.length,
+        receiptsCount: entry.receipts.length + entry.receiptSubmissions.length,
         accountEntryId: entry.accountEntryId,
         accountEntry: entry.accountEntry,
       }));
     }),
+    // Get receipts for a specific cashflow entry
+    getReceipts: protectedProcedure
+      .input(z.object({ id: z.string() }))
+      .query(async ({ ctx, input }) => {
+        const entry = await ctx.prisma.cashflowEntry.findUnique({
+          where: { id: input.id, userId: ctx.session.user.id },
+          include: {
+            receiptSubmissions: {
+              select: {
+                id: true,
+                submitterName: true,
+                purpose: true,
+                imageData: true,
+                imageType: true,
+                notes: true,
+                boundAt: true,
+                createdAt: true,
+              },
+              orderBy: { createdAt: "desc" },
+            },
+          },
+        });
+        return entry?.receiptSubmissions ?? [];
+      }),
     create: protectedProcedure
       .input(
         z.object({
@@ -184,7 +566,7 @@ export const appRouter = router({
         }),
       )
       .mutation(async ({ ctx, input }) => {
-        return ctx.prisma.cashflowEntry.create({
+        const entry = await ctx.prisma.cashflowEntry.create({
           data: {
             userId: ctx.session.user.id,
             date: input.date,
@@ -196,10 +578,27 @@ export const appRouter = router({
             accountEntryId: input.accountEntryId,
           },
         });
+
+        const action = input.accountEntryId ? "verified" : "created";
+        await logActivity(
+          ctx.prisma,
+          ctx.session.user.id,
+          action,
+          "cashflow_entry",
+          `${action} transaction "${input.description}" for ${input.amount >= 0 ? "+" : ""}${input.amount}`,
+          entry.id,
+          { amount: input.amount, category: input.category }
+        );
+
+        return entry;
       }),
     archive: protectedProcedure
       .input(z.object({ id: z.string().min(1) }))
       .mutation(async ({ ctx, input }) => {
+        const entry = await ctx.prisma.cashflowEntry.findUnique({
+          where: { id: input.id },
+        });
+
         const result = await ctx.prisma.cashflowEntry.updateMany({
           where: {
             id: input.id,
@@ -210,6 +609,18 @@ export const appRouter = router({
             archivedAt: new Date(),
           },
         });
+
+        if (result.count > 0) {
+          await logActivity(
+            ctx.prisma,
+            ctx.session.user.id,
+            "archived",
+            "cashflow_entry",
+            `archived transaction "${entry?.description}"`,
+            input.id
+          );
+        }
+
         return { updated: result.count };
       }),
   }),

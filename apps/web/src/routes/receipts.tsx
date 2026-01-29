@@ -1,0 +1,424 @@
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { createFileRoute, redirect } from "@tanstack/react-router";
+import { useState } from "react";
+
+import { authClient } from "@/lib/auth-client";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogClose,
+  DialogPopup,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { queryClient, trpc } from "@/utils/trpc";
+
+export const Route = createFileRoute("/receipts")({
+  component: ReceiptsRoute,
+  beforeLoad: async () => {
+    const session = await authClient.getSession();
+    if (!session.data) {
+      redirect({
+        to: "/",
+        throw: true,
+      });
+    }
+    return { session };
+  },
+});
+
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+  }).format(value);
+
+function ReceiptsRoute() {
+  const listQueryOptions = trpc.receiptSubmission.list.queryOptions();
+  const submissionsQuery = useQuery(listQueryOptions);
+  const countQueryOptions = trpc.receiptSubmission.countUnbound.queryOptions();
+
+  const cashflowQueryOptions = trpc.cashflowEntries.list.queryOptions();
+  const cashflowQuery = useQuery(cashflowQueryOptions);
+
+  const [viewingId, setViewingId] = useState<string | null>(null);
+  const [bindingId, setBindingId] = useState<string | null>(null);
+  const [selectedCashflowId, setSelectedCashflowId] = useState<string>("");
+  const [filterStatus, setFilterStatus] = useState<string>("all");
+
+  const viewQueryOptions = trpc.receiptSubmission.getById.queryOptions(
+    { id: viewingId ?? "" },
+    { enabled: !!viewingId }
+  );
+  const viewQuery = useQuery(viewQueryOptions);
+
+  const bindMutation = useMutation(
+    trpc.receiptSubmission.bind.mutationOptions({
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: listQueryOptions.queryKey });
+        queryClient.invalidateQueries({ queryKey: countQueryOptions.queryKey });
+        queryClient.invalidateQueries({ queryKey: viewQueryOptions.queryKey });
+        setBindingId(null);
+        setSelectedCashflowId("");
+      },
+    })
+  );
+
+  const unbindMutation = useMutation(
+    trpc.receiptSubmission.unbind.mutationOptions({
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: listQueryOptions.queryKey });
+        queryClient.invalidateQueries({ queryKey: countQueryOptions.queryKey });
+        queryClient.invalidateQueries({ queryKey: viewQueryOptions.queryKey });
+      },
+    })
+  );
+
+  const submissions = submissionsQuery.data ?? [];
+  const cashflowEntries = cashflowQuery.data?.filter((e) => e.isActive) ?? [];
+
+  const filteredSubmissions =
+    filterStatus === "all"
+      ? submissions
+      : filterStatus === "bound"
+        ? submissions.filter((s) => s.isBound)
+        : submissions.filter((s) => !s.isBound);
+
+  const unboundCount = submissions.filter((s) => !s.isBound).length;
+
+  const bindingSubmission = submissions.find((s) => s.id === bindingId);
+
+  return (
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6">
+      {/* Header */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-widest text-primary">Receipts</p>
+          <h1 className="text-3xl font-bold tracking-tight">Submitted Receipts</h1>
+          <p className="text-muted-foreground">
+            Review and bind receipt submissions to cashflow transactions
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {unboundCount > 0 && (
+            <span className="inline-flex items-center rounded-full bg-amber-500/10 px-3 py-1 text-sm font-medium text-amber-600 dark:text-amber-400">
+              {unboundCount} unbound
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-muted-foreground">Filter:</span>
+        <select
+          className="flex h-9 rounded-xl border border-border/60 bg-background/60 backdrop-blur-sm px-4 py-2 text-sm outline-none transition-all focus:border-ring focus:ring-2 focus:ring-ring/30"
+          value={filterStatus}
+          onChange={(e) => setFilterStatus(e.target.value)}
+        >
+          <option value="all">All Submissions</option>
+          <option value="unbound">Unbound</option>
+          <option value="bound">Bound</option>
+        </select>
+      </div>
+
+      {/* Submissions Table */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Receipt Submissions</CardTitle>
+          <CardDescription>
+            {filteredSubmissions.length} submission{filteredSubmissions.length === 1 ? "" : "s"}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="border-y border-border/50 bg-muted/30 text-xs text-muted-foreground">
+                <tr>
+                  <th className="px-5 py-3 font-medium">Date</th>
+                  <th className="px-5 py-3 font-medium">Submitter</th>
+                  <th className="px-5 py-3 font-medium">Purpose</th>
+                  <th className="px-5 py-3 font-medium">Status</th>
+                  <th className="px-5 py-3 font-medium">Linked Transaction</th>
+                  <th className="px-5 py-3 font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredSubmissions.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-5 py-8 text-center text-muted-foreground">
+                      No receipts found.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredSubmissions.map((submission) => (
+                    <tr
+                      key={submission.id}
+                      className={`border-b border-border/30 last:border-0 transition-colors hover:bg-muted/20 ${
+                        submission.isBound ? "bg-emerald-500/5" : ""
+                      }`}
+                    >
+                      <td className="px-5 py-4 text-muted-foreground">
+                        {new Date(submission.createdAt).toLocaleDateString()}
+                      </td>
+                      <td className="px-5 py-4">
+                        <div className="font-medium">{submission.submitterName}</div>
+                        <div className="text-xs text-muted-foreground">
+                          #{submission.id.slice(0, 8)}
+                        </div>
+                      </td>
+                      <td className="px-5 py-4 max-w-xs truncate">{submission.purpose}</td>
+                      <td className="px-5 py-4">
+                        {submission.isBound ? (
+                          <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                            Bound
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-600 dark:text-amber-400">
+                            Unbound
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-5 py-4">
+                        {submission.cashflowEntry ? (
+                          <div>
+                            <div className="font-medium text-sm">
+                              {submission.cashflowEntry.description}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {formatCurrency(submission.cashflowEntry.amount)} &middot;{" "}
+                              {new Date(submission.cashflowEntry.date).toLocaleDateString()}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="xs"
+                            variant="outline"
+                            onClick={() => setViewingId(submission.id)}
+                          >
+                            View
+                          </Button>
+                          {submission.isBound ? (
+                            <Button
+                              size="xs"
+                              variant="outline"
+                              className="text-amber-600 hover:text-amber-700"
+                              onClick={() => unbindMutation.mutate({ id: submission.id })}
+                              disabled={unbindMutation.isPending}
+                            >
+                              Unbind
+                            </Button>
+                          ) : (
+                            <Button
+                              size="xs"
+                              variant="outline"
+                              className="text-emerald-600 hover:text-emerald-700"
+                              onClick={() => setBindingId(submission.id)}
+                            >
+                              Bind
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Bind Receipt Dialog */}
+      <Dialog open={!!bindingId} onOpenChange={(open) => !open && setBindingId(null)}>
+        <DialogPopup className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Bind Receipt to Transaction</DialogTitle>
+            <DialogDescription>
+              Link this receipt from {bindingSubmission?.submitterName} to a cashflow transaction
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 space-y-4">
+            {bindingSubmission && (
+              <div className="rounded-xl border border-border/60 bg-muted/20 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Receipt Details
+                </p>
+                <div className="mt-2 space-y-1 text-sm">
+                  <p>
+                    <span className="text-muted-foreground">Purpose:</span>{" "}
+                    {bindingSubmission.purpose}
+                  </p>
+                  {bindingSubmission.notes && (
+                    <p>
+                      <span className="text-muted-foreground">Notes:</span>{" "}
+                      {bindingSubmission.notes}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label htmlFor="cashflowEntry">Select Transaction</Label>
+              <select
+                id="cashflowEntry"
+                className="flex h-10 w-full rounded-xl border border-border/60 bg-background/60 backdrop-blur-sm px-4 py-2 text-sm outline-none transition-all focus:border-ring focus:ring-2 focus:ring-ring/30"
+                value={selectedCashflowId}
+                onChange={(e) => setSelectedCashflowId(e.target.value)}
+              >
+                <option value="">Choose a transaction...</option>
+                {cashflowEntries.map((entry) => (
+                  <option key={entry.id} value={entry.id}>
+                    {new Date(entry.date).toLocaleDateString()} — {entry.description} (
+                    {formatCurrency(entry.amount)})
+                  </option>
+                ))}
+              </select>
+              {cashflowEntries.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  No cashflow transactions available. Create one from the Dashboard first.
+                </p>
+              )}
+            </div>
+          </div>
+          <DialogFooter className="mt-6">
+            <DialogClose>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button
+              onClick={() => {
+                if (bindingId && selectedCashflowId) {
+                  bindMutation.mutate({
+                    id: bindingId,
+                    cashflowEntryId: selectedCashflowId,
+                  });
+                }
+              }}
+              disabled={!selectedCashflowId || bindMutation.isPending}
+            >
+              {bindMutation.isPending ? "Binding..." : "Bind Receipt"}
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+
+      {/* View Receipt Dialog */}
+      <Dialog open={!!viewingId} onOpenChange={(open) => !open && setViewingId(null)}>
+        <DialogPopup className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Receipt Details</DialogTitle>
+            <DialogDescription>
+              Submitted by {viewQuery.data?.submitterName ?? "..."}
+            </DialogDescription>
+          </DialogHeader>
+          {viewQuery.isLoading ? (
+            <div className="py-8 text-center text-muted-foreground">Loading...</div>
+          ) : viewQuery.data ? (
+            <div className="mt-4 space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">Submitter</p>
+                  <p className="font-medium">{viewQuery.data.submitterName}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">Date Submitted</p>
+                  <p className="font-medium">
+                    {new Date(viewQuery.data.createdAt).toLocaleString()}
+                  </p>
+                </div>
+                <div className="sm:col-span-2">
+                  <p className="text-xs font-medium text-muted-foreground">Purpose</p>
+                  <p className="font-medium">{viewQuery.data.purpose}</p>
+                </div>
+                {viewQuery.data.notes && (
+                  <div className="sm:col-span-2">
+                    <p className="text-xs font-medium text-muted-foreground">Notes</p>
+                    <p>{viewQuery.data.notes}</p>
+                  </div>
+                )}
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">Status</p>
+                  {viewQuery.data.isBound ? (
+                    <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                      Bound
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center rounded-full bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-600 dark:text-amber-400">
+                      Unbound
+                    </span>
+                  )}
+                </div>
+                {viewQuery.data.cashflowEntry && (
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">Linked Transaction</p>
+                    <p className="font-medium">{viewQuery.data.cashflowEntry.description}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatCurrency(viewQuery.data.cashflowEntry.amount)}
+                    </p>
+                  </div>
+                )}
+              </div>
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-2">Receipt Image</p>
+                <div className="rounded-lg border border-border/60 overflow-hidden bg-muted/20">
+                  <img
+                    src={`data:${viewQuery.data.imageType};base64,${viewQuery.data.imageData}`}
+                    alt="Receipt"
+                    className="max-h-96 w-full object-contain"
+                  />
+                </div>
+              </div>
+              {!viewQuery.data.isBound && (
+                <div className="flex gap-2 pt-4 border-t">
+                  <Button
+                    className="flex-1"
+                    onClick={() => {
+                      setViewingId(null);
+                      setBindingId(viewQuery.data!.id);
+                    }}
+                  >
+                    Bind to Transaction
+                  </Button>
+                </div>
+              )}
+              {viewQuery.data.isBound && (
+                <div className="flex gap-2 pt-4 border-t">
+                  <Button
+                    className="flex-1"
+                    variant="outline"
+                    onClick={() => {
+                      unbindMutation.mutate(
+                        { id: viewQuery.data!.id },
+                        { onSuccess: () => setViewingId(null) }
+                      );
+                    }}
+                    disabled={unbindMutation.isPending}
+                  >
+                    Unbind from Transaction
+                  </Button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="py-8 text-center text-muted-foreground">Receipt not found</div>
+          )}
+          <DialogFooter className="mt-6">
+            <DialogClose>
+              <Button variant="outline">Close</Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+    </div>
+  );
+}

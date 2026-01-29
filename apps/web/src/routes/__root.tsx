@@ -22,11 +22,11 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
   head: () => ({
     meta: [
       {
-        title: "cisco-finance",
+        title: "Cisco Finance",
       },
       {
         name: "description",
-        content: "cisco-finance is a web application",
+        content: "Modern finance management for your organization",
       },
     ],
     links: [
@@ -48,9 +48,11 @@ function RootComponent() {
         disableTransitionOnChange
         storageKey="vite-ui-theme"
       >
-        <div className="grid grid-rows-[auto_1fr] h-svh">
+        <div className="bg-image min-h-svh">
           <Header />
-          <Outlet />
+          <main className="pb-8">
+            <Outlet />
+          </main>
         </div>
         <Toaster richColors />
       </ThemeProvider>

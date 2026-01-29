@@ -1,43 +1,87 @@
 import { Link } from "@tanstack/react-router";
 
+import { authClient } from "@/lib/auth-client";
+
 import { ModeToggle } from "./mode-toggle";
-import UserMenu from "./user-menu";
+import { Button } from "./ui/button";
 
 export default function Header() {
-  const links = [
+  const { data: session } = authClient.useSession();
+
+  const publicLinks = [
     { to: "/", label: "Home" },
+  ] as const;
+
+  const authLinks = [
     { to: "/dashboard", label: "Dashboard" },
     { to: "/accounts", label: "Accounts" },
+    { to: "/receipts", label: "Receipts" },
   ] as const;
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border/60 bg-background/80 backdrop-blur">
-      <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-3">
-        <div className="flex items-center gap-6">
-          <Link to="/" className="text-sm font-semibold tracking-[0.2em] uppercase">
-            Cisco Finance
-          </Link>
-          <nav className="flex items-center gap-4 text-sm">
-            {links.map(({ to, label }) => {
-              const isHome = to === "/";
-              return (
+    <header className="sticky top-0 z-50 w-full">
+      <div className="mx-auto max-w-6xl px-4 py-3">
+        <nav className="glass flex items-center justify-between rounded-2xl px-4 py-2.5">
+          <div className="flex items-center gap-8">
+            <Link 
+              to="/" 
+              className="flex items-center gap-2 font-semibold tracking-tight text-foreground transition-opacity hover:opacity-80"
+            >
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground text-sm font-bold">
+                CF
+              </div>
+              <span className="hidden sm:inline">Cisco Finance</span>
+            </Link>
+            
+            <div className="flex items-center gap-1">
+              {publicLinks.map(({ to, label }) => (
                 <Link
                   key={to}
                   to={to}
-                  activeOptions={isHome ? { exact: true } : undefined}
-                  className="text-muted-foreground transition-colors hover:text-foreground"
-                  activeProps={{ className: "text-foreground" }}
+                  activeOptions={{ exact: true }}
+                  className="rounded-lg px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  activeProps={{ className: "bg-muted text-foreground" }}
                 >
                   {label}
                 </Link>
-              );
-            })}
-          </nav>
-        </div>
-        <div className="flex items-center gap-2">
-          <ModeToggle />
-          <UserMenu />
-        </div>
+              ))}
+              {session && authLinks.map(({ to, label }) => (
+                <Link
+                  key={to}
+                  to={to}
+                  className="rounded-lg px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  activeProps={{ className: "bg-muted text-foreground" }}
+                >
+                  {label}
+                </Link>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <ModeToggle />
+            {session ? (
+              <div className="flex items-center gap-3">
+                <span className="hidden text-sm text-muted-foreground sm:inline">
+                  {session.user.name}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => authClient.signOut()}
+                >
+                  Sign Out
+                </Button>
+              </div>
+            ) : (
+              <Link to="/">
+                <Button variant="default" size="sm">
+                  Sign In
+                </Button>
+              </Link>
+            )}
+          </div>
+        </nav>
       </div>
     </header>
   );
