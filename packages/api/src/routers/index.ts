@@ -553,6 +553,25 @@ export const appRouter = router({
 
         const treasurerName = treasurerUser?.name || "Treasurer";
 
+        // Prepare attachments
+        const attachments = [];
+        let qrCodeHtml = "";
+
+        if (submission.qrCodeData && submission.qrCodeType) {
+          attachments.push({
+            filename: `qrcode.${submission.qrCodeType.split("/")[1]}`,
+            content: submission.qrCodeData,
+            encoding: "base64",
+            cid: "qrcode", // referenced in the HTML
+          });
+          
+          qrCodeHtml = `
+            <div style="text-align: center; margin: 20px 0;">
+              <p style="font-size: 14px; color: #718096; margin-bottom: 10px;">Payment QR Code:</p>
+              <img src="cid:qrcode" alt="QR Code" style="max-width: 200px; border: 1px solid #ddd; padding: 5px; border-radius: 5px;" />
+            </div>`;
+        }
+
         // Send email
         await sendEmail(
           treasurerAuth.email,
@@ -602,11 +621,7 @@ export const appRouter = router({
                   </table>
                 </div>
 
-                ${submission.qrCodeData ? `
-                <div style="text-align: center; margin: 20px 0;">
-                  <p style="font-size: 14px; color: #718096; margin-bottom: 10px;">Payment QR Code:</p>
-                  <img src="data:${submission.qrCodeType};base64,${submission.qrCodeData}" alt="QR Code" style="max-width: 200px; border: 1px solid #ddd; padding: 5px; border-radius: 5px;" />
-                </div>` : ""}
+                ${qrCodeHtml}
                 
                 <div style="text-align: center; margin-top: 30px;">
                   <a href="${process.env.BETTER_AUTH_URL || "#"}" style="background-color: #38a169; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">View in Dashboard</a>
@@ -617,7 +632,8 @@ export const appRouter = router({
                 <p>This endorsement was officially triggered by ${ctx.session.user.name}.</p>
               </div>
             </div>
-          `
+          `,
+          attachments
         );
 
         await logActivity(

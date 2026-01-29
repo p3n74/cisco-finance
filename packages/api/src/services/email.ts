@@ -9,13 +9,14 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-export const sendEmail = async (to: string, subject: string, html: string) => {
+export const sendEmail = async (to: string, subject: string, html: string, attachments?: any[]) => {
   try {
     const info = await transporter.sendMail({
       from: env.EMAIL_FROM,
       to,
       subject,
       html,
+      attachments,
     });
     console.log("Message sent: %s", info.messageId);
     return info;
