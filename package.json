@@ -24,7 +24,7 @@
   "type": "module",
   "scripts": {
     "dev": "turbo dev",
-    "start": "turbo run start",
+    "start": "turbo run start --filter=server --filter=web",
     "build": "turbo build",
     "check-types": "turbo check-types",
     "dev:native": "turbo -F native dev",
