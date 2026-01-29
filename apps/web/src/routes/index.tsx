@@ -380,7 +380,7 @@ function LoginCard() {
   };
 
   return (
-    <Card>
+    <Card id="login">
       <CardHeader>
         <CardTitle className="text-xl">Welcome Back</CardTitle>
         <CardDescription>
