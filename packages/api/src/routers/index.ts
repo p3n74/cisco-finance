@@ -534,6 +534,10 @@ export const appRouter = router({
         message: z.string().optional()
       }))
       .mutation(async ({ ctx, input }) => {
+        if (ctx.userRole !== "AUDITOR") {
+          throw new Error("Only the Auditor can endorse receipts for reimbursement.");
+        }
+
         const submission = await ctx.prisma.receiptSubmission.findUnique({
           where: { id: input.id },
         });

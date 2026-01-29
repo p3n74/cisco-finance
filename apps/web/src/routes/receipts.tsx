@@ -565,12 +565,14 @@ function ReceiptsRoute() {
               {viewQuery.data.needsReimbursement && !viewQuery.data.reimbursedAt && (
                 <div className="flex gap-2 pt-4 border-t">
                   {!viewQuery.data.endorsedAt ? (
-                    <Button
-                      className="flex-1 bg-green-600 hover:bg-green-700 text-white"
-                      onClick={() => setEndorsingId(viewQuery.data!.id)}
-                    >
-                      Endorse for Reimbursement
-                    </Button>
+                    userRole === "AUDITOR" && (
+                      <Button
+                        className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                        onClick={() => setEndorsingId(viewQuery.data!.id)}
+                      >
+                        Endorse for Reimbursement
+                      </Button>
+                    )
                   ) : (
                     userRole === "TREASURER" && (
                       <Button
