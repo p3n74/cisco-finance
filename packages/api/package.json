@@ -20,11 +20,13 @@
     "@trpc/server": "catalog:",
     "better-auth": "catalog:",
     "dotenv": "catalog:",
+    "nodemailer": "^7.0.13",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@cisco-finance/config": "workspace:*",
     "@types/express": "catalog:",
+    "@types/nodemailer": "^7.0.9",
     "typescript": "catalog:"
   }
 }

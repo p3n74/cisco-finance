@@ -3,6 +3,7 @@ import { z } from "zod";
 import { protectedProcedure, publicProcedure, router } from "../index";
 import { WS_EVENTS, type WsEmitter, type Context } from "../context";
 import { teamRouter } from "./team";
+import { sendEmail } from "../services/email";
 
 const ACCOUNT_OPTIONS = ["GCash", "GoTyme", "Cash", "BPI"] as const;
 
@@ -180,6 +181,35 @@ export const appRouter = router({
             contactType: input.contactType,
           },
         });
+
+        // Notify Auditor via Email if not submitted by Auditor
+        if (ctx.userRole !== "AUDITOR") {
+          const auditor = await ctx.prisma.authorizedUser.findFirst({
+            where: { role: "AUDITOR" },
+          });
+
+          if (auditor?.email) {
+            await sendEmail(
+              auditor.email,
+              "New Receipt Submission",
+              `
+                <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+                  <h2>New Receipt Submitted</h2>
+                  <p>A new receipt has been submitted for review.</p>
+                  
+                  <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0;">
+                    <p><strong>Submitter:</strong> ${input.submitterName}</p>
+                    <p><strong>Purpose:</strong> ${input.purpose}</p>
+                    ${input.notes ? `<p><strong>Notes:</strong> ${input.notes}</p>` : ""}
+                    ${input.needsReimbursement ? `<p><strong>Reimbursement Requested:</strong> ${input.reimbursementMethod} (${input.accountType || ""})</p>` : ""}
+                  </div>
+                  
+                  <p>Please log in to the dashboard to review and bind this receipt.</p>
+                </div>
+              `
+            );
+          }
+        }
 
         // Emit to all users (public submission notification)
         ctx.ws?.emitToAll({
