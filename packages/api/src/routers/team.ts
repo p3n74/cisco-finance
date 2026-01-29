@@ -2,8 +2,17 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router } from "../index";
 import { WS_EVENTS } from "../context";
+import { sendEmail } from "../services/email";
+import { env } from "@cisco-finance/env/server";
 
 const ROLES = ["VP_FINANCE", "AUDITOR", "TREASURER", "WAYS_AND_MEANS"] as const;
+
+const ROLE_LABELS: Record<string, string> = {
+  VP_FINANCE: "Vice President for Finance",
+  AUDITOR: "Auditor",
+  TREASURER: "Treasurer",
+  WAYS_AND_MEANS: "Ways and Means Officer",
+};
 
 // Middleware to check if user is VP Finance
 const vpFinanceProcedure = protectedProcedure.use(({ ctx, next }) => {
@@ -70,6 +79,39 @@ export const teamRouter = router({
           role: input.role,
         },
       });
+
+      // Send Invitation Email
+      await sendEmail(
+        input.email,
+        `[CISCO FINANCE] Invitation to join the team`,
+        `
+          <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
+            <div style="background-color: #1a365d; color: white; padding: 20px; text-align: center;">
+              <h1 style="margin: 0; font-size: 24px;">CISCO FINANCE</h1>
+            </div>
+            
+            <div style="padding: 30px; color: #333; line-height: 1.6;">
+              <p style="font-size: 16px;">Hello,</p>
+              <p>You have been invited to join the <strong>CISCO Finance Platform</strong> as a team member.</p>
+              
+              <div style="background-color: #f0f7ff; border-left: 4px solid #3182ce; padding: 20px; margin: 25px 0;">
+                <p style="margin: 0;"><strong>Role Assigned:</strong> ${ROLE_LABELS[input.role]}</p>
+                <p style="margin: 5px 0 0 0;"><strong>Invited By:</strong> ${ctx.session.user.name}</p>
+              </div>
+              
+              <p>Please click the button below to sign in and access the dashboard. Use your authorized email address to log in via Google.</p>
+              
+              <div style="text-align: center; margin-top: 30px;">
+                <a href="${env.CORS_ORIGIN || "#"}" style="background-color: #3182ce; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">Join the Team</a>
+              </div>
+            </div>
+            
+            <div style="background-color: #f7fafc; padding: 15px; text-align: center; color: #a0aec0; font-size: 12px; border-top: 1px solid #e2e8f0;">
+              <p>If you were not expecting this invitation, please ignore this email.</p>
+            </div>
+          </div>
+        `
+      );
 
       // Log activity
       await ctx.prisma.activityLog.create({
