@@ -27,5 +27,5 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio"
-  },
+  }
 }
