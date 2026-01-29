@@ -9,23 +9,23 @@
       "default": "./src/*.ts"
     }
   },
-  "scripts": {
-    "build": "bun x prisma generate",
-    "db:push": "bun x prisma db push",
-    "db:generate": "bun x prisma generate",
-    "db:migrate": "bun x prisma migrate dev",
-    "db:studio": "bun x prisma studio"
-  },
   "dependencies": {
     "@cisco-finance/env": "workspace:*",
     "@prisma/client": "catalog:",
     "@prisma/extension-accelerate": "^3.0.1",
     "dotenv": "catalog:",
+    "prisma": "^7.2.0",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@cisco-finance/config": "workspace:*",
-    "prisma": "^7.2.0",
     "typescript": "catalog:"
-  }
+  },
+  "scripts": {
+    "build": "prisma generate",
+    "db:push": "prisma db push",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:studio": "prisma studio"
+  },
 }

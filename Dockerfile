@@ -2,31 +2,20 @@
 FROM oven/bun:latest AS base
 WORKDIR /app
 
-# Install dependencies stage
-FROM base AS install
-# Copy root configuration files
-COPY package.json bun.lock* tsconfig.json* turbo.json* ./
-
-# Copy all package.json files from workspaces (maintains directory structure)
-COPY apps/server/package.json ./apps/server/
-COPY apps/web/package.json ./apps/web/
-COPY packages/api/package.json ./packages/api/
-COPY packages/auth/package.json ./packages/auth/
-COPY packages/config/package.json ./packages/config/
-COPY packages/db/package.json ./packages/db/
-COPY packages/env/package.json ./packages/env/
-
-# Install dependencies (removing --frozen-lockfile to allow Bun to resolve catalogs correctly in this environment)
-RUN bun install
-
 # Build stage
 FROM base AS builder
 ARG VITE_SERVER_URL
 ENV VITE_SERVER_URL=$VITE_SERVER_URL
-
-COPY --from=install /app/node_modules ./node_modules
+# Copy all files first to ensure workspace resolution works for catalogs and prisma configs
 COPY . .
+
+# Install dependencies
+RUN bun install
+
+# Generate Prisma Client
 RUN bun run db:generate
+
+# Build the applications
 RUN bun run build
 
 # Server target

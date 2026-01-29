@@ -30,10 +30,10 @@
     "dev:native": "turbo -F native dev",
     "dev:web": "turbo -F web dev",
     "dev:server": "turbo -F server dev",
-    "db:push": "bun x turbo -F @cisco-finance/db db:push",
-    "db:studio": "bun x turbo -F @cisco-finance/db db:studio",
-    "db:generate": "bun x turbo -F @cisco-finance/db db:generate",
-    "db:migrate": "bun x turbo -F @cisco-finance/db db:migrate",
+    "db:push": "turbo -F @cisco-finance/db db:push",
+    "db:studio": "turbo -F @cisco-finance/db db:studio",
+    "db:generate": "turbo -F @cisco-finance/db db:generate",
+    "db:migrate": "turbo -F @cisco-finance/db db:migrate",
     "check": "biome check --write ."
   },
   "dependencies": {
