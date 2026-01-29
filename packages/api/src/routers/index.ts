@@ -228,7 +228,17 @@ export const appRouter = router({
                         </tr>` : ""}
                         <tr>
                           <td style="padding: 5px 0; color: #718096;">Reimbursement:</td>
-                          <td style="padding: 5px 0;">${input.needsReimbursement ? `<span style="color: #e53e3e; font-weight: bold;">Yes</span> (${input.reimbursementMethod})` : "No"}</td>
+                          <td style="padding: 5px 0;">
+                            ${input.needsReimbursement ? `
+                              <span style="color: #e53e3e; font-weight: bold;">YES</span>
+                              <div style="font-size: 13px; color: #4a5568; margin-top: 5px; border-top: 1px dashed #e2e8f0; padding-top: 5px;">
+                                <strong>Method:</strong> ${input.reimbursementMethod}<br/>
+                                <strong>Account:</strong> ${input.accountName || "N/A"} (${input.accountType || "N/A"})<br/>
+                                <strong>Number:</strong> ${input.accountNumber || "N/A"}<br/>
+                                ${input.contactInfo ? `<strong>Contact:</strong> ${input.contactInfo} (${input.contactType || "N/A"})` : ""}
+                              </div>
+                            ` : "No"}
+                          </td>
                         </tr>
                       </table>
                     </div>
