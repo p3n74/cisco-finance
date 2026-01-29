@@ -667,6 +667,51 @@ export const appRouter = router({
           },
         });
 
+        // Notify Auditor
+        const auditorAuth = await ctx.prisma.authorizedUser.findFirst({
+          where: { role: "AUDITOR" },
+        });
+
+        if (auditorAuth?.email) {
+          const auditorUser = await ctx.prisma.user.findUnique({
+            where: { email: auditorAuth.email },
+            select: { name: true },
+          });
+          const auditorName = auditorUser?.name || "Auditor";
+
+          await sendEmail(
+            auditorAuth.email,
+            `[CISCO FINANCE] Reimbursement Processed - ${submission.submitterName}`,
+            `
+              <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
+                <div style="background-color: #1a365d; color: white; padding: 20px; text-align: center;">
+                  <h1 style="margin: 0; font-size: 24px;">CISCO FINANCE</h1>
+                </div>
+                
+                <div style="padding: 30px; color: #333; line-height: 1.6;">
+                  <p style="font-size: 16px;">Hello <strong>${auditorName}</strong>,</p>
+                  <p>The reimbursement for <strong>${submission.submitterName}</strong> has been marked as <strong>COMPLETED</strong> by the Treasurer.</p>
+                  
+                  <div style="background-color: #f3e8ff; border-left: 4px solid #805ad5; padding: 20px; margin: 25px 0;">
+                    <h3 style="margin-top: 0; color: #553c9a; font-size: 18px;">Transaction Completed</h3>
+                    <p style="margin: 5px 0;"><strong>Purpose:</strong> ${submission.purpose}</p>
+                    <p style="margin: 5px 0;"><strong>Processed By:</strong> ${ctx.session.user.name}</p>
+                    <p style="margin: 5px 0;"><strong>Date:</strong> ${new Date().toLocaleDateString()}</p>
+                  </div>
+                  
+                  <div style="text-align: center; margin-top: 30px;">
+                    <a href="${process.env.BETTER_AUTH_URL || "#"}" style="background-color: #805ad5; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">View in Dashboard</a>
+                  </div>
+                </div>
+                
+                <div style="background-color: #f7fafc; padding: 15px; text-align: center; color: #a0aec0; font-size: 12px; border-top: 1px solid #e2e8f0;">
+                  <p>This is an automated notification from the CISCO Finance System.</p>
+                </div>
+              </div>
+            `
+          );
+        }
+
         await logActivity(
           ctx.prisma,
           ctx.session.user.id,
