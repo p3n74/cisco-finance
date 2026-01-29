@@ -36,7 +36,8 @@ app.use(
   }),
 );
 
-app.all("/api/auth/(.*)", toNodeHandler(auth));
+app.all("/api/auth", toNodeHandler(auth));
+app.all("/api/auth/*path", toNodeHandler(auth));
 
 app.use(
   "/trpc",
@@ -62,7 +63,7 @@ const webDistPath = path.resolve(__dirname, "../../web/dist");
 app.use(express.static(webDistPath));
 
 // Fallback to index.html for SPA routing
-app.get("(.*)", (req, res, next) => {
+app.get("/*path", (req, res, next) => {
   // Don't intercept TRPC or Auth routes
   if (req.path.startsWith("/trpc") || req.path.startsWith("/api/auth")) {
     return next();
