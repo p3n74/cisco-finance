@@ -23,13 +23,8 @@ FROM base AS runner
 ENV NODE_ENV=production
 WORKDIR /app
 
-# Copy built server and web files
-COPY --from=builder /app/apps/server/dist ./apps/server/dist
-COPY --from=builder /app/apps/server/package.json ./apps/server/package.json
-COPY --from=builder /app/apps/web/dist ./apps/web/dist
-COPY --from=builder /app/packages ./packages
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./package.json
+# Copy everything from builder to ensure all symlinks and node_modules are intact
+COPY --from=builder /app /app
 
 EXPOSE 3000
 
