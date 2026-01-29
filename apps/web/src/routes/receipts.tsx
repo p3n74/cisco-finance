@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useState } from "react";
+import { toast } from "sonner";
 
 import { authClient } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { queryClient, trpc } from "@/utils/trpc";
 
 export const Route = createFileRoute("/receipts")({
@@ -48,6 +50,8 @@ function ReceiptsRoute() {
 
   const [viewingId, setViewingId] = useState<string | null>(null);
   const [bindingId, setBindingId] = useState<string | null>(null);
+  const [endorsingId, setEndorsingId] = useState<string | null>(null);
+  const [endorsementMessage, setEndorsementMessage] = useState("");
   const [selectedCashflowId, setSelectedCashflowId] = useState<string>("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterReimbursement, setFilterReimbursement] = useState<string>("all");
@@ -76,6 +80,19 @@ function ReceiptsRoute() {
         queryClient.invalidateQueries({ queryKey: listQueryOptions.queryKey });
         queryClient.invalidateQueries({ queryKey: countQueryOptions.queryKey });
         queryClient.invalidateQueries({ queryKey: viewQueryOptions.queryKey });
+      },
+    })
+  );
+
+  const endorseMutation = useMutation(
+    trpc.receiptSubmission.endorse.mutationOptions({
+      onSuccess: () => {
+        toast.success("Reimbursement endorsed and sent to treasurer.");
+        setEndorsingId(null);
+        setEndorsementMessage("");
+      },
+      onError: (error) => {
+        toast.error(error.message || "Failed to endorse reimbursement");
       },
     })
   );
@@ -504,6 +521,18 @@ function ReceiptsRoute() {
                   </Button>
                 </div>
               )}
+              
+              {/* Endorse Button */}
+              {viewQuery.data.needsReimbursement && (
+                <div className="flex gap-2 pt-4 border-t">
+                  <Button
+                    className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                    onClick={() => setEndorsingId(viewQuery.data!.id)}
+                  >
+                    Endorse for Reimbursement
+                  </Button>
+                </div>
+              )}
             </div>
           ) : (
             <div className="py-8 text-center text-muted-foreground">Receipt not found</div>
@@ -512,6 +541,51 @@ function ReceiptsRoute() {
             <DialogClose>
               <Button variant="outline">Close</Button>
             </DialogClose>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+
+      {/* Endorse Confirmation Dialog */}
+      <Dialog open={!!endorsingId} onOpenChange={(open) => !open && setEndorsingId(null)}>
+        <DialogPopup className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirm Endorsement</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to endorse this receipt? This will notify the treasurer to proceed with payment.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="endorsementMessage">Confirmation Message</Label>
+              <Textarea
+                id="endorsementMessage"
+                placeholder="Add a note or type 'Confirmed'..."
+                value={endorsementMessage}
+                onChange={(e) => setEndorsementMessage(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Please add a short note or confirmation message.
+              </p>
+            </div>
+          </div>
+          <DialogFooter className="mt-6">
+            <DialogClose>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button
+              className="bg-green-600 hover:bg-green-700 text-white"
+              onClick={() => {
+                if (endorsingId) {
+                  endorseMutation.mutate({ 
+                    id: endorsingId,
+                    message: endorsementMessage 
+                  });
+                }
+              }}
+              disabled={endorseMutation.isPending || !endorsementMessage.trim()}
+            >
+              {endorseMutation.isPending ? "Sending..." : "Confirm & Send"}
+            </Button>
           </DialogFooter>
         </DialogPopup>
       </Dialog>

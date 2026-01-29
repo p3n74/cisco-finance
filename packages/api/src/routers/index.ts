@@ -522,6 +522,117 @@ export const appRouter = router({
 
         return { id: submission.id, message: "Receipt uploaded and bound successfully" };
       }),
+    // Endorse for reimbursement (notify treasurer)
+    endorse: protectedProcedure
+      .input(z.object({ 
+        id: z.string(),
+        message: z.string().optional()
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const submission = await ctx.prisma.receiptSubmission.findUnique({
+          where: { id: input.id },
+        });
+
+        if (!submission) {
+          throw new Error("Receipt submission not found");
+        }
+
+        const treasurerAuth = await ctx.prisma.authorizedUser.findFirst({
+          where: { role: "TREASURER" },
+        });
+
+        if (!treasurerAuth?.email) {
+          throw new Error("Treasurer email not found. Please ensure a treasurer is configured.");
+        }
+
+        // Try to find the treasurer's name
+        const treasurerUser = await ctx.prisma.user.findUnique({
+          where: { email: treasurerAuth.email },
+          select: { name: true },
+        });
+
+        const treasurerName = treasurerUser?.name || "Treasurer";
+
+        // Send email
+        await sendEmail(
+          treasurerAuth.email,
+          `[CISCO FINANCE] Reimbursement Endorsement - ${submission.submitterName}`,
+          `
+            <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
+              <div style="background-color: #1a365d; color: white; padding: 20px; text-align: center;">
+                <h1 style="margin: 0; font-size: 24px;">CISCO FINANCE</h1>
+              </div>
+              
+              <div style="padding: 30px; color: #333; line-height: 1.6;">
+                <p style="font-size: 16px;">Hello <strong>${treasurerName}</strong>,</p>
+                <p>A receipt has been endorsed for reimbursement by <strong>${ctx.session.user.name}</strong>.</p>
+                
+                ${input.message ? `
+                <div style="background-color: #fffaf0; border-left: 4px solid #ed8936; padding: 15px; margin: 20px 0; font-style: italic; color: #744210;">
+                  "${input.message}"
+                </div>` : ""}
+
+                <div style="background-color: #f0fff4; border-left: 4px solid #38a169; padding: 20px; margin: 25px 0;">
+                  <h3 style="margin-top: 0; color: #22543d; font-size: 18px;">Payment Details</h3>
+                  <table style="width: 100%; border-collapse: collapse;">
+                    <tr>
+                      <td style="padding: 5px 0; color: #718096; width: 120px; vertical-align: top;">Payee:</td>
+                      <td style="padding: 5px 0; font-weight: 600; vertical-align: top;">${submission.submitterName}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 5px 0; color: #718096; vertical-align: top;">Purpose:</td>
+                      <td style="padding: 5px 0; font-weight: 600; vertical-align: top;">${submission.purpose}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 5px 0; color: #718096; vertical-align: top;">Method:</td>
+                      <td style="padding: 5px 0; vertical-align: top;">${submission.reimbursementMethod || "N/A"}</td>
+                    </tr>
+                    <tr>
+                      <td style="padding: 5px 0; color: #718096; vertical-align: top;">Account:</td>
+                      <td style="padding: 5px 0; vertical-align: top;">
+                        ${submission.accountName || "N/A"} (${submission.accountType || "N/A"})<br/>
+                        <span style="font-family: monospace; background: #eee; padding: 2px 4px; border-radius: 3px;">${submission.accountNumber || "N/A"}</span>
+                      </td>
+                    </tr>
+                    ${submission.contactInfo ? `
+                    <tr>
+                      <td style="padding: 5px 0; color: #718096; vertical-align: top;">Contact:</td>
+                      <td style="padding: 5px 0; vertical-align: top;">${submission.contactInfo} (${submission.contactType || "N/A"})</td>
+                    </tr>` : ""}
+                  </table>
+                </div>
+
+                ${submission.qrCodeData ? `
+                <div style="text-align: center; margin: 20px 0;">
+                  <p style="font-size: 14px; color: #718096; margin-bottom: 10px;">Payment QR Code:</p>
+                  <img src="data:${submission.qrCodeType};base64,${submission.qrCodeData}" alt="QR Code" style="max-width: 200px; border: 1px solid #ddd; padding: 5px; border-radius: 5px;" />
+                </div>` : ""}
+                
+                <div style="text-align: center; margin-top: 30px;">
+                  <a href="${process.env.BETTER_AUTH_URL || "#"}" style="background-color: #38a169; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">View in Dashboard</a>
+                </div>
+              </div>
+              
+              <div style="background-color: #f7fafc; padding: 15px; text-align: center; color: #a0aec0; font-size: 12px; border-top: 1px solid #e2e8f0;">
+                <p>This endorsement was officially triggered by ${ctx.session.user.name}.</p>
+              </div>
+            </div>
+          `
+        );
+
+        await logActivity(
+          ctx.prisma,
+          ctx.session.user.id,
+          "endorsed",
+          "receipt_submission",
+          `endorsed reimbursement for "${submission.purpose}" to ${submission.submitterName}`,
+          submission.id,
+          { treasurerEmail: treasurerAuth.email, message: input.message },
+          ctx.ws
+        );
+
+        return { success: true, message: "Endorsement sent to treasurer" };
+      }),
   }),
 
   // Account entries (treasury ledger)
