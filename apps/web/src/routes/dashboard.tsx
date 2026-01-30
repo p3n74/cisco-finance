@@ -1,7 +1,8 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -15,10 +16,20 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { queryClient, trpc } from "@/utils/trpc";
+import { ArrowDown, ArrowUp, Calendar, Filter, Loader2 } from "lucide-react";
 
 export const Route = createFileRoute("/dashboard")({
   component: RouteComponent,
@@ -34,6 +45,8 @@ export const Route = createFileRoute("/dashboard")({
   },
 });
 
+type StatusFilterValue = "all" | "no_receipt" | "verified" | "manual";
+
 function RouteComponent() {
   const { session } = Route.useRouteContext();
   const navigate = useNavigate();
@@ -44,9 +57,37 @@ function RouteComponent() {
   const canEditDashboard =
     roleQuery.data?.role === "VP_FINANCE" || roleQuery.data?.role === "AUDITOR";
 
-  const cashflowQueryOptions = trpc.cashflowEntries.list.queryOptions();
+  const cashflowQueryOptions = trpc.cashflowEntries.list.queryOptions({
+    limit: 100,
+  });
   const cashflowQuery = useQuery(cashflowQueryOptions);
-  
+
+  // Table uses server-side pagination (listPage); stats use list(100)
+  const PAGE_SIZE = 20;
+  const [page, setPage] = useState(1);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilterValue>("all");
+  const [dateFilterMode, setDateFilterMode] = useState<"all" | "single" | "range">("all");
+  const [dateSingle, setDateSingle] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [dateSort, setDateSort] = useState<"desc" | "asc">("desc");
+  const debouncedSearch = useDebouncedValue(searchQuery.trim(), 300);
+
+  const listPageQueryOptions = trpc.cashflowEntries.listPage.queryOptions({
+    limit: PAGE_SIZE,
+    offset: (page - 1) * PAGE_SIZE,
+    search: debouncedSearch || undefined,
+    statusFilter,
+    dateFrom: dateFilterMode === "range" && dateFrom ? dateFrom : undefined,
+    dateTo: dateFilterMode === "range" && dateTo ? dateTo : undefined,
+    dateSingle: dateFilterMode === "single" && dateSingle ? dateSingle : undefined,
+    dateSort,
+  });
+  const listPageQuery = useQuery(listPageQueryOptions);
+  const tableItems = listPageQuery.data?.items ?? [];
+  const hasMore = listPageQuery.data?.hasMore ?? false;
+
   const unverifiedQueryOptions = trpc.accountEntries.listUnverified.queryOptions();
   const unverifiedQuery = useQuery(unverifiedQueryOptions);
   
@@ -97,6 +138,7 @@ function RouteComponent() {
     trpc.cashflowEntries.create.mutationOptions({
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: cashflowQueryOptions.queryKey });
+        queryClient.invalidateQueries({ queryKey: listPageQueryOptions.queryKey });
         queryClient.invalidateQueries({ queryKey: unverifiedQueryOptions.queryKey });
         setFormState({
           description: "",
@@ -112,6 +154,7 @@ function RouteComponent() {
     trpc.receiptSubmission.bind.mutationOptions({
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: cashflowQueryOptions.queryKey });
+        queryClient.invalidateQueries({ queryKey: listPageQueryOptions.queryKey });
         queryClient.invalidateQueries({ queryKey: unboundReceiptsQueryOptions.queryKey });
         queryClient.invalidateQueries({ queryKey: unboundListQueryOptions.queryKey });
         resetAttachDialog();
@@ -123,6 +166,7 @@ function RouteComponent() {
     trpc.receiptSubmission.submitAndBind.mutationOptions({
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: cashflowQueryOptions.queryKey });
+        queryClient.invalidateQueries({ queryKey: listPageQueryOptions.queryKey });
         queryClient.invalidateQueries({ queryKey: unboundReceiptsQueryOptions.queryKey });
         queryClient.invalidateQueries({ queryKey: unboundListQueryOptions.queryKey });
         resetAttachDialog();
@@ -134,6 +178,7 @@ function RouteComponent() {
     trpc.receiptSubmission.unbind.mutationOptions({
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: cashflowQueryOptions.queryKey });
+        queryClient.invalidateQueries({ queryKey: listPageQueryOptions.queryKey });
         queryClient.invalidateQueries({ queryKey: unboundReceiptsQueryOptions.queryKey });
         queryClient.invalidateQueries({ queryKey: unboundListQueryOptions.queryKey });
         queryClient.invalidateQueries({ queryKey: receiptsQueryOptions.queryKey });
@@ -143,6 +188,7 @@ function RouteComponent() {
 
   const resetAttachDialog = () => {
     setAttachingToEntryId(null);
+    setAttachingToEntry(null);
     setAttachMode("select");
     setSelectedReceiptId("");
     setUploadForm({
@@ -180,12 +226,34 @@ function RouteComponent() {
 
   const cashflowEntries = cashflowQuery.data?.items ?? [];
   const activeEntries = cashflowEntries.filter((entry) => entry.isActive);
-  const sortedActiveEntries = [...activeEntries].sort(
-    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-  );
 
-  const attachingToEntry = activeEntries.find((e) => e.id === attachingToEntryId);
-  const viewingEntry = activeEntries.find((e) => e.id === viewingReceiptsEntryId);
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, statusFilter, dateFilterMode, dateSingle, dateFrom, dateTo, dateSort]);
+
+  // Mandatory 0.25s loading overlay when order, search, or filter changes
+  const [isTableLoading, setIsTableLoading] = useState(false);
+  const tableLoadTriggerRef = useRef(false);
+  useEffect(() => {
+    if (!tableLoadTriggerRef.current) {
+      tableLoadTriggerRef.current = true;
+      return;
+    }
+    setIsTableLoading(true);
+    const t = setTimeout(() => setIsTableLoading(false), 250);
+    return () => clearTimeout(t);
+  }, [debouncedSearch, statusFilter, dateSort, dateFilterMode, dateSingle, dateFrom, dateTo, page]);
+
+  // Store full entry when opening Attach/View dialogs so we have it after page change
+  type TableEntry = (typeof tableItems)[number];
+  const [attachingToEntry, setAttachingToEntry] = useState<TableEntry | null>(null);
+  const [viewingEntry, setViewingEntry] = useState<TableEntry | null>(null);
+  useEffect(() => {
+    if (!attachingToEntryId) setAttachingToEntry(null);
+  }, [attachingToEntryId]);
+  useEffect(() => {
+    if (!viewingReceiptsEntryId) setViewingEntry(null);
+  }, [viewingReceiptsEntryId]);
 
   const totalInflow = activeEntries
     .filter((entry) => entry.amount > 0)
@@ -550,19 +618,176 @@ function RouteComponent() {
               <CardDescription>Your verified transactions</CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Input placeholder="Search transactions..." className="w-full sm:w-60" />
-              <Button variant="outline" size="sm" disabled>
-                Filters
-              </Button>
+              <Input
+                placeholder="Search by amount or description"
+                className="w-full sm:w-72"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={(props) => (
+                    <Button variant="outline" size="sm" className="gap-2" {...props}>
+                      <Filter className="size-4" />
+                      Status:{" "}
+                      {statusFilter === "all"
+                        ? "All"
+                        : statusFilter === "no_receipt"
+                          ? "No receipt"
+                          : statusFilter === "verified"
+                            ? "Verified"
+                            : "Manual entry"}
+                    </Button>
+                  )}
+                />
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setStatusFilter("all")}>
+                    All statuses
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setStatusFilter("no_receipt")}>
+                    No receipt
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setStatusFilter("verified")}>
+                    Verified
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setStatusFilter("manual")}>
+                    Manual entry
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={(props) => (
+                    <Button variant="outline" size="sm" className="gap-2" {...props}>
+                      <Calendar className="size-4" />
+                      Date:{" "}
+                      {dateFilterMode === "all"
+                        ? "All"
+                        : dateFilterMode === "single" && dateSingle
+                          ? dateSingle
+                          : dateFilterMode === "range" && dateFrom && dateTo
+                            ? `${dateFrom} → ${dateTo}`
+                            : "All"}
+                    </Button>
+                  )}
+                />
+                <DropdownMenuContent align="end" className="min-w-64 p-0">
+                  <DropdownMenuItem onClick={() => setDateFilterMode("all")}>
+                    All dates
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel className="px-2 py-1.5 text-xs">
+                      Specific date
+                    </DropdownMenuLabel>
+                    <div
+                      className="px-2 pb-2"
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => e.stopPropagation()}
+                    >
+                      <Input
+                        type="date"
+                        value={dateSingle}
+                        onChange={(e) => {
+                          setDateSingle(e.target.value);
+                          setDateFilterMode("single");
+                        }}
+                        className="h-9 text-xs"
+                      />
+                    </div>
+                  </DropdownMenuGroup>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel className="px-2 py-1.5 text-xs">
+                      Date range
+                    </DropdownMenuLabel>
+                    <div
+                      className="flex flex-col gap-2 px-2 pb-3"
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Label className="shrink-0 text-xs text-muted-foreground">From</Label>
+                        <Input
+                          type="date"
+                          value={dateFrom}
+                          onChange={(e) => {
+                            setDateFrom(e.target.value);
+                            setDateFilterMode("range");
+                          }}
+                          className="h-9 text-xs"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Label className="shrink-0 text-xs text-muted-foreground">To</Label>
+                        <Input
+                          type="date"
+                          value={dateTo}
+                          onChange={(e) => {
+                            setDateTo(e.target.value);
+                            setDateFilterMode("range");
+                          }}
+                          className="h-9 text-xs"
+                        />
+                      </div>
+                    </div>
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">
+          {/* Pagination above table */}
+          {(tableItems.length > 0 || page > 1) && (
+            <div className="flex items-center justify-between gap-4 border-b border-border/50 bg-muted/20 px-5 py-3">
+              <p className="text-xs text-muted-foreground">
+                Showing {(page - 1) * PAGE_SIZE + 1}–{(page - 1) * PAGE_SIZE + tableItems.length}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  Previous
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  Page {page}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!hasMore}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="border-y border-border/50 bg-muted/30 text-xs text-muted-foreground">
                 <tr>
-                  <th className="px-5 py-3 font-medium">Date</th>
+                  <th className="px-5 py-3 font-medium">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="-ml-2 h-8 gap-1.5 font-medium text-muted-foreground hover:text-foreground"
+                      onClick={() =>
+                        setDateSort((s) => (s === "desc" ? "asc" : "desc"))
+                      }
+                    >
+                      Date
+                      {dateSort === "desc" ? (
+                        <ArrowDown className="size-3.5 shrink-0" />
+                      ) : (
+                        <ArrowUp className="size-3.5 shrink-0" />
+                      )}
+                    </Button>
+                  </th>
                   <th className="px-5 py-3 font-medium">Description</th>
                   <th className="px-5 py-3 font-medium">Category</th>
                   <th className="px-5 py-3 font-medium">Account</th>
@@ -572,14 +797,16 @@ function RouteComponent() {
                 </tr>
               </thead>
               <tbody>
-              {sortedActiveEntries.length === 0 ? (
+              {tableItems.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-5 py-8 text-center text-muted-foreground">
-                    No transactions yet. Verify transactions from the Accounts page.
+                    {debouncedSearch || statusFilter !== "all" || dateFilterMode !== "all"
+                      ? "No transactions match your search or filter."
+                      : "No transactions yet. Verify transactions from the Accounts page."}
                   </td>
                 </tr>
               ) : (
-                sortedActiveEntries.map((entry) => {
+                tableItems.map((entry) => {
                   const hasAccountEntry = !!entry.accountEntryId;
                   return (
                     <tr
@@ -614,13 +841,17 @@ function RouteComponent() {
                         {formatCurrency(entry.amount)}
                       </td>
                       <td className="px-5 py-4">
-                        {hasAccountEntry ? (
+                        {entry.receiptsCount === 0 ? (
+                          <span className="inline-flex items-center rounded-full bg-red-500/15 px-3 py-1.5 text-base font-bold uppercase tracking-wide text-red-600 dark:text-red-400">
+                            No receipt
+                          </span>
+                        ) : hasAccountEntry ? (
                           <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
                             Verified
                           </span>
                         ) : (
                           <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
-                            Manual
+                            Manual entry
                           </span>
                         )}
                       </td>
@@ -635,6 +866,7 @@ function RouteComponent() {
                               variant="ghost"
                               onClick={() => {
                                 setViewingReceiptsEntryId(entry.id);
+                                setViewingEntry(entry);
                                 setViewingReceiptIndex(0);
                               }}
                             >
@@ -645,7 +877,10 @@ function RouteComponent() {
                             <Button 
                               size="xs" 
                               variant="ghost"
-                              onClick={() => setAttachingToEntryId(entry.id)}
+                              onClick={() => {
+                                setAttachingToEntryId(entry.id);
+                                setAttachingToEntry(entry);
+                              }}
                             >
                               Attach
                             </Button>
@@ -662,12 +897,23 @@ function RouteComponent() {
         </CardContent>
       </Card>
 
+      {/* Full-page loading overlay when order/search/filter changes */}
+      {isTableLoading && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-background/50 backdrop-blur-sm animate-in fade-in duration-200 ease-out"
+          aria-hidden="true"
+        >
+          <Loader2 className="size-12 text-primary animate-[spin_1.2s_linear_infinite]" />
+        </div>
+      )}
+
       {/* View Receipts Dialog */}
       <Dialog 
         open={!!viewingReceiptsEntryId} 
         onOpenChange={(open) => {
           if (!open) {
             setViewingReceiptsEntryId(null);
+            setViewingEntry(null);
             setViewingReceiptIndex(0);
           }
         }}

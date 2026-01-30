@@ -1,9 +1,19 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogClose,
@@ -16,6 +26,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { queryClient, trpc } from "@/utils/trpc";
+import { ArrowDown, ArrowUp, Calendar, Filter, Loader2 } from "lucide-react";
 
 export const Route = createFileRoute("/accounts")({
   component: AccountsRoute,
@@ -30,12 +41,56 @@ const formatCurrency = (value: number) =>
     maximumFractionDigits: 2,
   }).format(value);
 
+const PAGE_SIZE = 20;
+
 function AccountsRoute() {
-  const listQueryOptions = trpc.accountEntries.list.queryOptions();
+  const listQueryOptions = trpc.accountEntries.list.queryOptions({ limit: 100 });
   const entriesQuery = useQuery(listQueryOptions);
   const roleQuery = useQuery(trpc.team.getMyRole.queryOptions());
   const canEditAccounts =
     roleQuery.data?.role === "TREASURER" || roleQuery.data?.role === "VP_FINANCE";
+
+  const [page, setPage] = useState(1);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [accountFilter, setAccountFilter] = useState<"all" | (typeof ACCOUNT_OPTIONS)[number]>("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "verified" | "unverified" | "archived">("all");
+  const [dateFilterMode, setDateFilterMode] = useState<"all" | "single" | "range">("all");
+  const [dateSingle, setDateSingle] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [dateSort, setDateSort] = useState<"desc" | "asc">("desc");
+  const debouncedSearch = useDebouncedValue(searchQuery.trim(), 300);
+
+  const listPageQueryOptions = trpc.accountEntries.listPage.queryOptions({
+    limit: PAGE_SIZE,
+    offset: (page - 1) * PAGE_SIZE,
+    search: debouncedSearch || undefined,
+    accountFilter,
+    statusFilter,
+    dateFrom: dateFilterMode === "range" && dateFrom ? dateFrom : undefined,
+    dateTo: dateFilterMode === "range" && dateTo ? dateTo : undefined,
+    dateSingle: dateFilterMode === "single" && dateSingle ? dateSingle : undefined,
+    dateSort,
+  });
+  const listPageQuery = useQuery(listPageQueryOptions);
+  const tableItems = listPageQuery.data?.items ?? [];
+  const hasMore = listPageQuery.data?.hasMore ?? false;
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, accountFilter, statusFilter, dateFilterMode, dateSingle, dateFrom, dateTo, dateSort]);
+
+  const [isTableLoading, setIsTableLoading] = useState(false);
+  const tableLoadTriggerRef = useRef(false);
+  useEffect(() => {
+    if (!tableLoadTriggerRef.current) {
+      tableLoadTriggerRef.current = true;
+      return;
+    }
+    setIsTableLoading(true);
+    const t = setTimeout(() => setIsTableLoading(false), 250);
+    return () => clearTimeout(t);
+  }, [debouncedSearch, accountFilter, statusFilter, dateSort, dateFilterMode, dateSingle, dateFrom, dateTo, page]);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -57,6 +112,7 @@ function AccountsRoute() {
     trpc.accountEntries.update.mutationOptions({
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: listQueryOptions.queryKey });
+        queryClient.invalidateQueries({ queryKey: listPageQueryOptions.queryKey });
         setEditingId(null);
       },
     }),
@@ -66,6 +122,7 @@ function AccountsRoute() {
     trpc.accountEntries.create.mutationOptions({
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: listQueryOptions.queryKey });
+        queryClient.invalidateQueries({ queryKey: listPageQueryOptions.queryKey });
         setNewEntry({
           date: new Date().toISOString().slice(0, 10),
           description: "",
@@ -81,15 +138,13 @@ function AccountsRoute() {
     trpc.accountEntries.archive.mutationOptions({
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: listQueryOptions.queryKey });
+        queryClient.invalidateQueries({ queryKey: listPageQueryOptions.queryKey });
       },
     }),
   );
 
   const entries = entriesQuery.data?.items ?? [];
   const activeEntries = entries.filter((entry) => entry.isActive);
-  const sortedEntries = [...entries].sort(
-    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
-  );
 
   const totalInflow = activeEntries
     .filter((entry) => entry.amount > 0)
@@ -236,17 +291,209 @@ function AccountsRoute() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="relative">
         <CardHeader className="border-b">
-          <CardTitle>Ledger</CardTitle>
-          <CardDescription>Track what goes in and out per account.</CardDescription>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle>Ledger</CardTitle>
+              <CardDescription>Track what goes in and out per account.</CardDescription>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                placeholder="Search by amount or description"
+                className="w-full sm:w-72"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={(props) => (
+                    <Button variant="outline" size="sm" className="gap-2" {...props}>
+                      <Filter className="size-4" />
+                      Account: {accountFilter === "all" ? "All" : accountFilter}
+                    </Button>
+                  )}
+                />
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setAccountFilter("all")}>
+                    All accounts
+                  </DropdownMenuItem>
+                  {ACCOUNT_OPTIONS.map((opt) => (
+                    <DropdownMenuItem key={opt} onClick={() => setAccountFilter(opt)}>
+                      {opt}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={(props) => (
+                    <Button variant="outline" size="sm" className="gap-2" {...props}>
+                      <Filter className="size-4" />
+                      Status:{" "}
+                      {statusFilter === "all"
+                        ? "All"
+                        : statusFilter === "verified"
+                          ? "Verified"
+                          : statusFilter === "unverified"
+                            ? "Unverified"
+                            : "Archived"}
+                    </Button>
+                  )}
+                />
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setStatusFilter("all")}>
+                    All statuses
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setStatusFilter("verified")}>
+                    Verified
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setStatusFilter("unverified")}>
+                    Unverified
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setStatusFilter("archived")}>
+                    Archived
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={(props) => (
+                    <Button variant="outline" size="sm" className="gap-2" {...props}>
+                      <Calendar className="size-4" />
+                      Date:{" "}
+                      {dateFilterMode === "all"
+                        ? "All"
+                        : dateFilterMode === "single" && dateSingle
+                          ? dateSingle
+                          : dateFilterMode === "range" && dateFrom && dateTo
+                            ? `${dateFrom} → ${dateTo}`
+                            : "All"}
+                    </Button>
+                  )}
+                />
+                <DropdownMenuContent align="end" className="min-w-64 p-0">
+                  <DropdownMenuItem onClick={() => setDateFilterMode("all")}>
+                    All dates
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel className="px-2 py-1.5 text-xs">
+                      Specific date
+                    </DropdownMenuLabel>
+                    <div
+                      className="px-2 pb-2"
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => e.stopPropagation()}
+                    >
+                      <Input
+                        type="date"
+                        value={dateSingle}
+                        onChange={(e) => {
+                          setDateSingle(e.target.value);
+                          setDateFilterMode("single");
+                        }}
+                        className="h-9 text-xs"
+                      />
+                    </div>
+                  </DropdownMenuGroup>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel className="px-2 py-1.5 text-xs">
+                      Date range
+                    </DropdownMenuLabel>
+                    <div
+                      className="flex flex-col gap-2 px-2 pb-3"
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Label className="shrink-0 text-xs text-muted-foreground">From</Label>
+                        <Input
+                          type="date"
+                          value={dateFrom}
+                          onChange={(e) => {
+                            setDateFrom(e.target.value);
+                            setDateFilterMode("range");
+                          }}
+                          className="h-9 text-xs"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Label className="shrink-0 text-xs text-muted-foreground">To</Label>
+                        <Input
+                          type="date"
+                          value={dateTo}
+                          onChange={(e) => {
+                            setDateTo(e.target.value);
+                            setDateFilterMode("range");
+                          }}
+                          className="h-9 text-xs"
+                        />
+                      </div>
+                    </div>
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
+          {isTableLoading && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-background/50 backdrop-blur-sm animate-in fade-in duration-200 ease-out"
+              aria-hidden="true"
+            >
+              <Loader2 className="size-12 text-primary animate-[spin_1.2s_linear_infinite]" />
+            </div>
+          )}
+          {(tableItems.length > 0 || page > 1) && (
+            <div className="flex items-center justify-between gap-4 border-b border-border/50 bg-muted/20 px-4 py-3">
+              <p className="text-xs text-muted-foreground">
+                Showing {(page - 1) * PAGE_SIZE + 1}–{(page - 1) * PAGE_SIZE + tableItems.length}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  Previous
+                </Button>
+                <span className="text-sm text-muted-foreground">Page {page}</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!hasMore}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead className="border-b bg-muted/40 text-muted-foreground">
                 <tr>
-                  <th className="px-4 py-3 font-medium">Date</th>
+                  <th className="px-4 py-3 font-medium">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="-ml-2 h-8 gap-1.5 font-medium text-muted-foreground hover:text-foreground"
+                      onClick={() =>
+                        setDateSort((s) => (s === "desc" ? "asc" : "desc"))
+                      }
+                    >
+                      Date
+                      {dateSort === "desc" ? (
+                        <ArrowDown className="size-3.5 shrink-0" />
+                      ) : (
+                        <ArrowUp className="size-3.5 shrink-0" />
+                      )}
+                    </Button>
+                  </th>
                   <th className="px-4 py-3 font-medium">Description</th>
                   {ACCOUNT_OPTIONS.map((account) => (
                     <th key={account} className="px-4 py-3 font-medium text-right">
@@ -258,14 +505,19 @@ function AccountsRoute() {
                 </tr>
               </thead>
               <tbody>
-                {sortedEntries.length === 0 ? (
+                {tableItems.length === 0 ? (
                   <tr>
                     <td className="px-4 py-6 text-center text-muted-foreground" colSpan={8}>
-                      No entries yet. Click "New transaction" to add your first account entry.
+                      {debouncedSearch ||
+                      accountFilter !== "all" ||
+                      statusFilter !== "all" ||
+                      dateFilterMode !== "all"
+                        ? "No entries match your search or filter."
+                        : "No entries yet. Click \"New transaction\" to add your first account entry."}
                     </td>
                   </tr>
                 ) : (
-                  sortedEntries.map((entry) => {
+                  tableItems.map((entry) => {
                     return (
                     <Fragment key={entry.id}>
                       <tr

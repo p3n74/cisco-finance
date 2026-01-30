@@ -1,12 +1,22 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogClose,
@@ -16,9 +26,11 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { queryClient, trpc } from "@/utils/trpc";
+import { ArrowDown, ArrowUp, Calendar, Filter, Loader2 } from "lucide-react";
 
 export const Route = createFileRoute("/receipts")({
   component: ReceiptsRoute,
@@ -41,27 +53,75 @@ const formatCurrency = (value: number) =>
     maximumFractionDigits: 2,
   }).format(value);
 
+const PAGE_SIZE = 20;
+
 function ReceiptsRoute() {
-  const listQueryOptions = trpc.receiptSubmission.list.queryOptions();
+  const listQueryOptions = trpc.receiptSubmission.list.queryOptions({ limit: 100 });
   const submissionsQuery = useQuery(listQueryOptions);
   const countQueryOptions = trpc.receiptSubmission.countUnbound.queryOptions();
 
   const cashflowQueryOptions = trpc.cashflowEntries.list.queryOptions();
   const cashflowQuery = useQuery(cashflowQueryOptions);
 
+  const [page, setPage] = useState(1);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterStatus, setFilterStatus] = useState<"all" | "bound" | "unbound">("all");
+  const [filterReimbursement, setFilterReimbursement] = useState<"all" | "needs" | "none" | "reimbursed" | "endorsed">("all");
+  const [dateFilterMode, setDateFilterMode] = useState<"all" | "single" | "range">("all");
+  const [dateSingle, setDateSingle] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [dateSort, setDateSort] = useState<"desc" | "asc">("desc");
+  const debouncedSearch = useDebouncedValue(searchQuery.trim(), 300);
+
+  const listPageQueryOptions = trpc.receiptSubmission.listPage.queryOptions({
+    limit: PAGE_SIZE,
+    offset: (page - 1) * PAGE_SIZE,
+    search: debouncedSearch || undefined,
+    statusFilter: filterStatus,
+    reimbursementFilter: filterReimbursement,
+    dateFrom: dateFilterMode === "range" && dateFrom ? dateFrom : undefined,
+    dateTo: dateFilterMode === "range" && dateTo ? dateTo : undefined,
+    dateSingle: dateFilterMode === "single" && dateSingle ? dateSingle : undefined,
+    dateSort,
+  });
+  const listPageQuery = useQuery(listPageQueryOptions);
+  const tableItems = listPageQuery.data?.items ?? [];
+  const hasMore = listPageQuery.data?.hasMore ?? false;
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearch, filterStatus, filterReimbursement, dateFilterMode, dateSingle, dateFrom, dateTo, dateSort]);
+
+  const [isTableLoading, setIsTableLoading] = useState(false);
+  const tableLoadTriggerRef = useRef(false);
+  useEffect(() => {
+    if (!tableLoadTriggerRef.current) {
+      tableLoadTriggerRef.current = true;
+      return;
+    }
+    setIsTableLoading(true);
+    const t = setTimeout(() => setIsTableLoading(false), 250);
+    return () => clearTimeout(t);
+  }, [debouncedSearch, filterStatus, filterReimbursement, dateSort, dateFilterMode, dateSingle, dateFrom, dateTo, page]);
+
   const [viewingId, setViewingId] = useState<string | null>(null);
   const [bindingId, setBindingId] = useState<string | null>(null);
   const [endorsingId, setEndorsingId] = useState<string | null>(null);
   const [endorsementMessage, setEndorsementMessage] = useState("");
   const [selectedCashflowId, setSelectedCashflowId] = useState<string>("");
-  const [filterStatus, setFilterStatus] = useState<string>("all");
-  const [filterReimbursement, setFilterReimbursement] = useState<string>("all");
 
   const viewQueryOptions = trpc.receiptSubmission.getById.queryOptions(
     { id: viewingId ?? "" },
     { enabled: !!viewingId }
   );
   const viewQuery = useQuery(viewQueryOptions);
+  const bindingQueryOptions = trpc.receiptSubmission.getById.queryOptions(
+    { id: bindingId ?? "" },
+    { enabled: !!bindingId }
+  );
+  const bindingQuery = useQuery(bindingQueryOptions);
+  const bindingSubmission = bindingQuery.data ?? null;
 
   const roleQueryOptions = trpc.team.getMyRole.queryOptions();
   const roleQuery = useQuery(roleQueryOptions);
@@ -74,6 +134,7 @@ function ReceiptsRoute() {
     trpc.receiptSubmission.bind.mutationOptions({
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: listQueryOptions.queryKey });
+        queryClient.invalidateQueries({ queryKey: listPageQueryOptions.queryKey });
         queryClient.invalidateQueries({ queryKey: countQueryOptions.queryKey });
         queryClient.invalidateQueries({ queryKey: viewQueryOptions.queryKey });
         setBindingId(null);
@@ -86,6 +147,7 @@ function ReceiptsRoute() {
     trpc.receiptSubmission.unbind.mutationOptions({
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: listQueryOptions.queryKey });
+        queryClient.invalidateQueries({ queryKey: listPageQueryOptions.queryKey });
         queryClient.invalidateQueries({ queryKey: countQueryOptions.queryKey });
         queryClient.invalidateQueries({ queryKey: viewQueryOptions.queryKey });
       },
@@ -98,6 +160,10 @@ function ReceiptsRoute() {
         toast.success("Reimbursement endorsed and sent to treasurer.");
         setEndorsingId(null);
         setEndorsementMessage("");
+        queryClient.invalidateQueries({ queryKey: listQueryOptions.queryKey });
+        queryClient.invalidateQueries({ queryKey: listPageQueryOptions.queryKey });
+        queryClient.invalidateQueries({ queryKey: countQueryOptions.queryKey });
+        queryClient.invalidateQueries({ queryKey: viewQueryOptions.queryKey });
       },
       onError: (error) => {
         toast.error(error.message || "Failed to endorse reimbursement");
@@ -110,6 +176,7 @@ function ReceiptsRoute() {
       onSuccess: () => {
         toast.success("Receipt marked as reimbursed");
         queryClient.invalidateQueries({ queryKey: listQueryOptions.queryKey });
+        queryClient.invalidateQueries({ queryKey: listPageQueryOptions.queryKey });
         queryClient.invalidateQueries({ queryKey: viewQueryOptions.queryKey });
       },
       onError: (error) => {
@@ -121,24 +188,9 @@ function ReceiptsRoute() {
   const submissions = submissionsQuery.data?.items ?? [];
   const cashflowEntries = cashflowQuery.data?.items?.filter((e) => e.isActive) ?? [];
 
-  const filteredSubmissions = submissions.filter((s) => {
-    // Filter by binding status
-    if (filterStatus === "bound" && !s.isBound) return false;
-    if (filterStatus === "unbound" && s.isBound) return false;
-    // Filter by reimbursement
-    if (filterReimbursement === "needs" && !s.needsReimbursement) return false;
-    if (filterReimbursement === "none" && s.needsReimbursement) return false;
-    return true;
-  });
-  const sortedFilteredSubmissions = [...filteredSubmissions].sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-  );
-
   const unboundCount = submissions.filter((s) => !s.isBound).length;
   const pendingEndorsementCount = submissions.filter((s) => s.needsReimbursement && !s.endorsedAt && !s.reimbursedAt).length;
   const pendingPaymentCount = submissions.filter((s) => s.needsReimbursement && s.endorsedAt && !s.reimbursedAt).length;
-
-  const bindingSubmission = submissions.find((s) => s.id === bindingId);
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6">
@@ -172,48 +224,200 @@ function ReceiptsRoute() {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex items-center gap-4 flex-wrap">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">Status:</span>
-          <select
-            className="flex h-9 rounded-xl border border-border/60 bg-background/60 backdrop-blur-sm px-4 py-2 text-sm outline-none transition-all focus:border-ring focus:ring-2 focus:ring-ring/30"
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-          >
-            <option value="all">All</option>
-            <option value="unbound">Unbound</option>
-            <option value="bound">Bound</option>
-          </select>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">Reimbursement:</span>
-          <select
-            className="flex h-9 rounded-xl border border-border/60 bg-background/60 backdrop-blur-sm px-4 py-2 text-sm outline-none transition-all focus:border-ring focus:ring-2 focus:ring-ring/30"
-            value={filterReimbursement}
-            onChange={(e) => setFilterReimbursement(e.target.value)}
-          >
-            <option value="all">All</option>
-            <option value="needs">Needs Reimbursement</option>
-            <option value="none">No Reimbursement</option>
-          </select>
-        </div>
-      </div>
-
       {/* Submissions Table */}
-      <Card>
+      <Card className="relative">
         <CardHeader>
-          <CardTitle>Receipt Submissions</CardTitle>
-            <CardDescription>
-            {sortedFilteredSubmissions.length} submission{sortedFilteredSubmissions.length === 1 ? "" : "s"}
-          </CardDescription>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle>Receipt Submissions</CardTitle>
+              <CardDescription>Search by name or purpose. Filter by status and date.</CardDescription>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                placeholder="Search by name or purpose"
+                className="w-full sm:w-72"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={(props) => (
+                    <Button variant="outline" size="sm" className="gap-2" {...props}>
+                      <Filter className="size-4" />
+                      Status: {filterStatus === "all" ? "All" : filterStatus === "bound" ? "Bound" : "Unbound"}
+                    </Button>
+                  )}
+                />
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setFilterStatus("all")}>All</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setFilterStatus("unbound")}>Unbound</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setFilterStatus("bound")}>Bound</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={(props) => (
+                    <Button variant="outline" size="sm" className="gap-2" {...props}>
+                      <Filter className="size-4" />
+                      Reimbursement:{" "}
+                      {filterReimbursement === "all"
+                        ? "All"
+                        : filterReimbursement === "needs"
+                          ? "Needs"
+                          : filterReimbursement === "reimbursed"
+                            ? "Reimbursed"
+                            : filterReimbursement === "endorsed"
+                              ? "Endorsed"
+                              : "None"}
+                    </Button>
+                  )}
+                />
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setFilterReimbursement("all")}>All</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setFilterReimbursement("needs")}>
+                    Needs Reimbursement
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setFilterReimbursement("endorsed")}>
+                    Endorsed
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setFilterReimbursement("reimbursed")}>
+                    Reimbursed
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setFilterReimbursement("none")}>
+                    No Reimbursement
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={(props) => (
+                    <Button variant="outline" size="sm" className="gap-2" {...props}>
+                      <Calendar className="size-4" />
+                      Date:{" "}
+                      {dateFilterMode === "all"
+                        ? "All"
+                        : dateFilterMode === "single" && dateSingle
+                          ? dateSingle
+                          : dateFilterMode === "range" && dateFrom && dateTo
+                            ? `${dateFrom} → ${dateTo}`
+                            : "All"}
+                    </Button>
+                  )}
+                />
+                <DropdownMenuContent align="end" className="min-w-64 p-0">
+                  <DropdownMenuItem onClick={() => setDateFilterMode("all")}>All dates</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel className="px-2 py-1.5 text-xs">Specific date</DropdownMenuLabel>
+                    <div
+                      className="px-2 pb-2"
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => e.stopPropagation()}
+                    >
+                      <Input
+                        type="date"
+                        value={dateSingle}
+                        onChange={(e) => {
+                          setDateSingle(e.target.value);
+                          setDateFilterMode("single");
+                        }}
+                        className="h-9 text-xs"
+                      />
+                    </div>
+                  </DropdownMenuGroup>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuGroup>
+                    <DropdownMenuLabel className="px-2 py-1.5 text-xs">Date range</DropdownMenuLabel>
+                    <div
+                      className="flex flex-col gap-2 px-2 pb-3"
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Label className="shrink-0 text-xs text-muted-foreground">From</Label>
+                        <Input
+                          type="date"
+                          value={dateFrom}
+                          onChange={(e) => {
+                            setDateFrom(e.target.value);
+                            setDateFilterMode("range");
+                          }}
+                          className="h-9 text-xs"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Label className="shrink-0 text-xs text-muted-foreground">To</Label>
+                        <Input
+                          type="date"
+                          value={dateTo}
+                          onChange={(e) => {
+                            setDateTo(e.target.value);
+                            setDateFilterMode("range");
+                          }}
+                          className="h-9 text-xs"
+                        />
+                      </div>
+                    </div>
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
+          {isTableLoading && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-background/50 backdrop-blur-sm animate-in fade-in duration-200 ease-out"
+              aria-hidden="true"
+            >
+              <Loader2 className="size-12 text-primary animate-[spin_1.2s_linear_infinite]" />
+            </div>
+          )}
+          {(tableItems.length > 0 || page > 1) && (
+            <div className="flex items-center justify-between gap-4 border-b border-border/50 bg-muted/20 px-5 py-3">
+              <p className="text-xs text-muted-foreground">
+                Showing {(page - 1) * PAGE_SIZE + 1}–{(page - 1) * PAGE_SIZE + tableItems.length}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  Previous
+                </Button>
+                <span className="text-sm text-muted-foreground">Page {page}</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!hasMore}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="border-y border-border/50 bg-muted/30 text-xs text-muted-foreground">
                 <tr>
-                  <th className="px-5 py-3 font-medium">Date</th>
+                  <th className="px-5 py-3 font-medium">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="-ml-2 h-8 gap-1.5 font-medium text-muted-foreground hover:text-foreground"
+                      onClick={() => setDateSort((s) => (s === "desc" ? "asc" : "desc"))}
+                    >
+                      Date
+                      {dateSort === "desc" ? (
+                        <ArrowDown className="size-3.5 shrink-0" />
+                      ) : (
+                        <ArrowUp className="size-3.5 shrink-0" />
+                      )}
+                    </Button>
+                  </th>
                   <th className="px-5 py-3 font-medium">Submitter</th>
                   <th className="px-5 py-3 font-medium">Purpose</th>
                   <th className="px-5 py-3 font-medium">Status</th>
@@ -222,14 +426,19 @@ function ReceiptsRoute() {
                 </tr>
               </thead>
               <tbody>
-                {sortedFilteredSubmissions.length === 0 ? (
+                {tableItems.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-5 py-8 text-center text-muted-foreground">
-                      No receipts found.
+                      {debouncedSearch ||
+                      filterStatus !== "all" ||
+                      filterReimbursement !== "all" ||
+                      dateFilterMode !== "all"
+                        ? "No receipts match your search or filter."
+                        : "No receipts found."}
                     </td>
                   </tr>
                 ) : (
-                  sortedFilteredSubmissions.map((submission) => (
+                  tableItems.map((submission) => (
                     <tr
                       key={submission.id}
                       className={`border-b border-border/30 last:border-0 transition-colors hover:bg-muted/20 ${

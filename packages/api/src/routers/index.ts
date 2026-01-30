@@ -375,6 +375,126 @@ export const appRouter = router({
           nextCursor,
         };
       }),
+    listPage: protectedProcedure
+      .input(
+        z.object({
+          limit: z.number().min(1).max(100).default(20),
+          offset: z.number().min(0).default(0),
+          search: z.string().optional(),
+          statusFilter: z.enum(["all", "bound", "unbound"]).optional().default("all"),
+          reimbursementFilter: z.enum(["all", "needs", "none", "reimbursed", "endorsed"]).optional().default("all"),
+          dateFrom: z.string().optional(),
+          dateTo: z.string().optional(),
+          dateSingle: z.string().optional(),
+          dateSort: z.enum(["desc", "asc"]).default("desc"),
+        })
+      )
+      .query(async ({ ctx, input }) => {
+        const whereParts: Array<object> = [];
+
+        if (input.search?.trim()) {
+          const q = input.search.trim();
+          whereParts.push({
+            OR: [
+              { submitterName: { contains: q, mode: "insensitive" as const } },
+              { purpose: { contains: q, mode: "insensitive" as const } },
+            ],
+          });
+        }
+
+        if (input.statusFilter !== "all") {
+          if (input.statusFilter === "bound") {
+            whereParts.push({ cashflowEntryId: { not: null } });
+          } else {
+            whereParts.push({ cashflowEntryId: null });
+          }
+        }
+
+        if (input.reimbursementFilter !== "all") {
+          if (input.reimbursementFilter === "needs") {
+            whereParts.push({ needsReimbursement: true });
+          } else if (input.reimbursementFilter === "reimbursed") {
+            whereParts.push({ reimbursedAt: { not: null } });
+          } else if (input.reimbursementFilter === "endorsed") {
+            whereParts.push({ endorsedAt: { not: null }, reimbursedAt: null });
+          } else {
+            whereParts.push({ needsReimbursement: false });
+          }
+        }
+
+        if (input.dateSingle) {
+          const start = new Date(input.dateSingle + "T00:00:00.000Z");
+          const end = new Date(start.getTime() + 86400000);
+          whereParts.push({ createdAt: { gte: start, lt: end } });
+        } else if (input.dateFrom && input.dateTo) {
+          whereParts.push({
+            createdAt: {
+              gte: new Date(input.dateFrom + "T00:00:00.000Z"),
+              lte: new Date(input.dateTo + "T23:59:59.999Z"),
+            },
+          });
+        }
+
+        const where = whereParts.length > 0 ? { AND: whereParts } : undefined;
+        const orderBy = [
+          { createdAt: input.dateSort } as const,
+          { id: input.dateSort } as const,
+        ];
+
+        const submissions = await ctx.prisma.receiptSubmission.findMany({
+          where,
+          orderBy,
+          skip: input.offset,
+          take: input.limit + 1,
+          select: {
+            id: true,
+            submitterName: true,
+            purpose: true,
+            imageType: true,
+            notes: true,
+            needsReimbursement: true,
+            reimbursementMethod: true,
+            accountType: true,
+            accountNumber: true,
+            accountName: true,
+            contactInfo: true,
+            contactType: true,
+            cashflowEntryId: true,
+            boundAt: true,
+            boundBy: true,
+            endorsedAt: true,
+            endorsedBy: true,
+            reimbursedAt: true,
+            reimbursedBy: true,
+            createdAt: true,
+            cashflowEntry: {
+              select: {
+                id: true,
+                description: true,
+                amount: true,
+                date: true,
+              },
+            },
+          },
+        });
+
+        const hasMore = submissions.length > input.limit;
+        const items = submissions.slice(0, input.limit);
+
+        return {
+          items: items.map((s) => ({
+            ...s,
+            isBound: !!s.cashflowEntryId,
+            cashflowEntry: s.cashflowEntry
+              ? {
+                  ...s.cashflowEntry,
+                  amount: Number(s.cashflowEntry.amount),
+                }
+              : null,
+          })),
+          hasMore,
+        };
+      }),
     // Admin: get single submission with image
     getById: protectedProcedure
       .input(z.object({ id: z.string() }))
@@ -867,6 +987,98 @@ export const appRouter = router({
             cashflowEntry: entry.cashflowEntry,
           })),
           nextCursor,
+        };
+      }),
+    listPage: protectedProcedure
+      .input(
+        z.object({
+          limit: z.number().min(1).max(100).default(20),
+          offset: z.number().min(0).default(0),
+          search: z.string().optional(),
+          accountFilter: z.enum(["all", ...ACCOUNT_OPTIONS]).optional().default("all"),
+          statusFilter: z.enum(["all", "verified", "unverified", "archived"]).optional().default("all"),
+          dateFrom: z.string().optional(),
+          dateTo: z.string().optional(),
+          dateSingle: z.string().optional(),
+          dateSort: z.enum(["desc", "asc"]).default("desc"),
+        })
+      )
+      .query(async ({ ctx, input }) => {
+        const whereParts: Array<object> = [];
+
+        if (input.search?.trim()) {
+          const q = input.search.trim();
+          whereParts.push({
+            OR: [
+              { description: { contains: q, mode: "insensitive" as const } },
+              ...(q && !Number.isNaN(Number(q)) ? [{ amount: Number(q) }] : []),
+            ],
+          });
+        }
+
+        if (input.accountFilter !== "all") {
+          whereParts.push({ account: input.accountFilter });
+        }
+
+        if (input.statusFilter !== "all") {
+          if (input.statusFilter === "verified") {
+            whereParts.push({ cashflowEntry: { isNot: null } });
+          } else if (input.statusFilter === "unverified") {
+            whereParts.push({ cashflowEntry: null, isActive: true });
+          } else if (input.statusFilter === "archived") {
+            whereParts.push({ isActive: false });
+          }
+        }
+
+        if (input.dateSingle) {
+          const start = new Date(input.dateSingle + "T00:00:00.000Z");
+          const end = new Date(start.getTime() + 86400000);
+          whereParts.push({ date: { gte: start, lt: end } });
+        } else if (input.dateFrom && input.dateTo) {
+          whereParts.push({
+            date: {
+              gte: new Date(input.dateFrom + "T00:00:00.000Z"),
+              lte: new Date(input.dateTo + "T23:59:59.999Z"),
+            },
+          });
+        }
+
+        const where = whereParts.length > 0 ? { AND: whereParts } : undefined;
+        const orderBy = [
+          { date: input.dateSort } as const,
+          { id: input.dateSort } as const,
+        ];
+
+        const entries = await ctx.prisma.accountEntry.findMany({
+          where,
+          orderBy,
+          skip: input.offset,
+          take: input.limit + 1,
+          include: {
+            cashflowEntry: {
+              select: { id: true, description: true },
+            },
+          },
+        });
+
+        const hasMore = entries.length > input.limit;
+        const items = entries.slice(0, input.limit);
+
+        return {
+          items: items.map((entry) => ({
+            id: entry.id,
+            date: entry.date,
+            description: entry.description,
+            account: entry.account,
+            amount: Number(entry.amount),
+            currency: entry.currency,
+            notes: entry.notes,
+            isActive: entry.isActive,
+            archivedAt: entry.archivedAt,
+            isVerified: !!entry.cashflowEntry,
+            cashflowEntry: entry.cashflowEntry,
+          })),
+          hasMore,
         };
       }),
     listUnverified: protectedProcedure.query(async ({ ctx }) => {
@@ -1697,6 +1909,120 @@ export const appRouter = router({
             accountEntry: entry.accountEntry,
           })),
           nextCursor,
+        };
+      }),
+    // Server-side paginated list with filters (only fetches one page from DB)
+    listPage: protectedProcedure
+      .input(
+        z.object({
+          limit: z.number().min(1).max(100).default(20),
+          offset: z.number().min(0).default(0),
+          search: z.string().optional(),
+          statusFilter: z.enum(["all", "no_receipt", "verified", "manual"]).optional().default("all"),
+          dateFrom: z.string().optional(),
+          dateTo: z.string().optional(),
+          dateSingle: z.string().optional(),
+          dateSort: z.enum(["desc", "asc"]).default("desc"),
+        })
+      )
+      .query(async ({ ctx, input }) => {
+        const whereParts: Parameters<typeof ctx.prisma.cashflowEntry.findMany>[0]["where"] & { AND: unknown[] } = {
+          isActive: true,
+          AND: [],
+        };
+
+        if (input.search?.trim()) {
+          const q = input.search.trim();
+          (whereParts.AND as object[]).push({
+            OR: [
+              { description: { contains: q, mode: "insensitive" as const } },
+              ...(q && !Number.isNaN(Number(q)) ? [{ amount: Number(q) }] : []),
+            ],
+          });
+        }
+
+        if (input.statusFilter !== "all") {
+          if (input.statusFilter === "no_receipt") {
+            (whereParts.AND as object[]).push(
+              { receipts: { none: {} } },
+              { receiptSubmissions: { none: {} } },
+            );
+          } else if (input.statusFilter === "verified") {
+            (whereParts.AND as object[]).push(
+              { accountEntryId: { not: null } },
+              {
+                OR: [
+                  { receipts: { some: {} } },
+                  { receiptSubmissions: { some: {} } },
+                ],
+              },
+            );
+          } else if (input.statusFilter === "manual") {
+            (whereParts.AND as object[]).push(
+              { accountEntryId: null },
+              {
+                OR: [
+                  { receipts: { some: {} } },
+                  { receiptSubmissions: { some: {} } },
+                ],
+              },
+            );
+          }
+        }
+
+        if (input.dateSingle) {
+          const start = new Date(input.dateSingle + "T00:00:00.000Z");
+          const end = new Date(start.getTime() + 86400000);
+          (whereParts.AND as object[]).push({
+            date: { gte: start, lt: end },
+          });
+        } else if (input.dateFrom && input.dateTo) {
+          (whereParts.AND as object[]).push({
+            date: {
+              gte: new Date(input.dateFrom + "T00:00:00.000Z"),
+              lte: new Date(input.dateTo + "T23:59:59.999Z"),
+            },
+          });
+        }
+
+        const orderBy = [
+          { date: input.dateSort } as const,
+          { id: input.dateSort } as const,
+        ];
+
+        const entries = await ctx.prisma.cashflowEntry.findMany({
+          where: whereParts.AND.length ? whereParts : { isActive: true },
+          orderBy,
+          skip: input.offset,
+          take: input.limit + 1,
+          include: {
+            receipts: { select: { id: true } },
+            receiptSubmissions: { select: { id: true } },
+            accountEntry: {
+              select: { id: true, description: true, account: true },
+            },
+          },
+        });
+
+        const hasMore = entries.length > input.limit;
+        const items = entries.slice(0, input.limit);
+
+        return {
+          items: items.map((entry) => ({
+            id: entry.id,
+            date: entry.date,
+            description: entry.description,
+            category: entry.category,
+            amount: Number(entry.amount),
+            currency: entry.currency,
+            notes: entry.notes,
+            isActive: entry.isActive,
+            archivedAt: entry.archivedAt,
+            receiptsCount: entry.receipts.length + entry.receiptSubmissions.length,
+            accountEntryId: entry.accountEntryId,
+            accountEntry: entry.accountEntry,
+          })),
+          hasMore,
         };
       }),
     // Get receipts for a specific cashflow entry
