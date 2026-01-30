@@ -28,8 +28,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { downloadPdfReport } from "@/lib/pdf-report";
 import { queryClient, trpc } from "@/utils/trpc";
-import { ArrowDown, ArrowUp, Calendar, Filter, Loader2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Calendar, FileDown, Filter, Loader2 } from "lucide-react";
 
 export const Route = createFileRoute("/dashboard")({
   component: RouteComponent,
@@ -126,6 +127,12 @@ function RouteComponent() {
   // View receipts state
   const [viewingReceiptsEntryId, setViewingReceiptsEntryId] = useState<string | null>(null);
   const [viewingReceiptIndex, setViewingReceiptIndex] = useState<number>(0);
+
+  // PDF report dialog
+  const [pdfDialogOpen, setPdfDialogOpen] = useState(false);
+  const [pdfDateFrom, setPdfDateFrom] = useState("");
+  const [pdfDateTo, setPdfDateTo] = useState("");
+  const [pdfGenerating, setPdfGenerating] = useState(false);
 
   const receiptsQueryOptions = trpc.cashflowEntries.getReceipts.queryOptions(
     { id: viewingReceiptsEntryId ?? "" },
@@ -453,8 +460,9 @@ function RouteComponent() {
             </DialogPopup>
           </Dialog>
           )}
-          <Button variant="outline" disabled>
-            Export
+          <Button variant="outline" onClick={() => setPdfDialogOpen(true)} className="gap-2">
+            <FileDown className="size-4" />
+            PDF Report
           </Button>
         </div>
       </div>
@@ -1025,6 +1033,77 @@ function RouteComponent() {
                 Attach More
               </Button>
             )}
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+
+      {/* PDF Report Dialog */}
+      <Dialog open={pdfDialogOpen} onOpenChange={setPdfDialogOpen}>
+        <DialogPopup className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Generate PDF Report</DialogTitle>
+            <DialogDescription>
+              Choose a date range. The report will include a table of cashflow entries and attached receipts in order (4–8 receipts per page).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 space-y-4">
+            <div className="space-y-2">
+              <Label className="text-muted-foreground">From</Label>
+              <Input
+                type="date"
+                value={pdfDateFrom}
+                onChange={(e) => setPdfDateFrom(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-muted-foreground">To</Label>
+              <Input
+                type="date"
+                value={pdfDateTo}
+                onChange={(e) => setPdfDateTo(e.target.value)}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Leave both empty for all dates.
+            </p>
+          </div>
+          <DialogFooter className="mt-6">
+            <DialogClose asChild>
+              <Button type="button" variant="outline">
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button
+              disabled={pdfGenerating}
+              onClick={async () => {
+                setPdfGenerating(true);
+                try {
+                  const data = await queryClient.fetchQuery(
+                    trpc.report.getReportData.queryOptions({
+                      dateFrom: pdfDateFrom || undefined,
+                      dateTo: pdfDateTo || undefined,
+                      dateSort: "desc",
+                    })
+                  );
+                  downloadPdfReport(data, {
+                    dateFrom: pdfDateFrom || undefined,
+                    dateTo: pdfDateTo || undefined,
+                  });
+                  setPdfDialogOpen(false);
+                } finally {
+                  setPdfGenerating(false);
+                }
+              }}
+            >
+              {pdfGenerating ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Generating…
+                </>
+              ) : (
+                "Generate PDF"
+              )}
+            </Button>
           </DialogFooter>
         </DialogPopup>
       </Dialog>

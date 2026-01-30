@@ -2151,5 +2151,116 @@ export const appRouter = router({
         return { updated: result.count };
       }),
   }),
+
+  // PDF report: entries table + receipts in order (for client-side PDF generation)
+  report: router({
+    getReportData: protectedProcedure
+      .input(
+        z.object({
+          dateFrom: z.string().optional(),
+          dateTo: z.string().optional(),
+          dateSort: z.enum(["desc", "asc"]).default("desc"),
+        })
+      )
+      .query(async ({ ctx, input }) => {
+        const where =
+          input.dateFrom && input.dateTo
+            ? {
+                isActive: true,
+                date: {
+                  gte: new Date(input.dateFrom + "T00:00:00.000Z"),
+                  lte: new Date(input.dateTo + "T23:59:59.999Z"),
+                },
+              }
+            : { isActive: true };
+        const orderBy = [
+          { date: input.dateSort } as const,
+          { id: input.dateSort } as const,
+        ];
+        const entries = await ctx.prisma.cashflowEntry.findMany({
+          where,
+          orderBy,
+          include: {
+            receipts: { select: { id: true } },
+            receiptSubmissions: {
+              select: {
+                id: true,
+                submitterName: true,
+                purpose: true,
+                imageData: true,
+                imageType: true,
+                createdAt: true,
+              },
+              orderBy: { createdAt: "asc" },
+            },
+            accountEntry: {
+              select: { id: true, description: true, account: true },
+            },
+          },
+        });
+
+        // Starting/ending cash flow only when date range is set
+        let startingCashFlow: number | null = null;
+        let endingCashFlow: number | null = null;
+        if (input.dateFrom && input.dateTo) {
+          const startDate = new Date(input.dateFrom + "T00:00:00.000Z");
+          const startingAgg = await ctx.prisma.cashflowEntry.aggregate({
+            where: { isActive: true, date: { lt: startDate } },
+            _sum: { amount: true },
+          });
+          startingCashFlow = Number(startingAgg._sum.amount ?? 0);
+          const netInPeriod = entries.reduce((sum, e) => sum + Number(e.amount), 0);
+          endingCashFlow = startingCashFlow + netInPeriod;
+        }
+
+        const entryRows = entries.map((entry) => ({
+          id: entry.id,
+          date: entry.date,
+          description: entry.description,
+          category: entry.category,
+          amount: Number(entry.amount),
+          currency: entry.currency,
+          receiptsCount: entry.receipts.length + entry.receiptSubmissions.length,
+          accountEntry: entry.accountEntry,
+        }));
+        type ReceiptRow = {
+          entryId: string;
+          entryDate: Date;
+          entryDescription: string;
+          amount: number;
+          receipt: {
+            id: string;
+            imageData: string;
+            imageType: string | null;
+            submitterName: string;
+            purpose: string;
+          };
+        };
+        const receiptsInOrder: ReceiptRow[] = [];
+        for (const entry of entries) {
+          for (const sub of entry.receiptSubmissions) {
+            receiptsInOrder.push({
+              entryId: entry.id,
+              entryDate: entry.date,
+              entryDescription: entry.description,
+              amount: Number(entry.amount),
+              receipt: {
+                id: sub.id,
+                imageData: sub.imageData,
+                imageType: sub.imageType,
+                submitterName: sub.submitterName,
+                purpose: sub.purpose,
+              },
+            });
+          }
+        }
+        return {
+          entries: entryRows,
+          receiptsInOrder,
+          startingCashFlow,
+          endingCashFlow,
+        };
+      }),
+  }),
 });
 export type AppRouter = typeof appRouter;
