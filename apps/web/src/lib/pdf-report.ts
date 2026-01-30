@@ -35,6 +35,37 @@ export type ReportData = {
   endingCashFlow: number | null;
 };
 
+export type ProjectReportBudgetPlanRow = {
+  itemName: string;
+  description: string;
+  estimatedAmount: number;
+  notes: string;
+};
+
+export type ProjectReportExpenditureRow = {
+  date: Date;
+  budgetItemName: string;
+  description: string;
+  amount: number;
+  cashflowEntryId: string;
+};
+
+export type ProjectReportData = {
+  project: {
+    id: string;
+    name: string;
+    description: string;
+    category: string;
+    eventDate: Date | null;
+    status: string;
+  };
+  totalBudget: number;
+  totalActual: number;
+  budgetPlanRows: ProjectReportBudgetPlanRow[];
+  expenditureRows: ProjectReportExpenditureRow[];
+  receiptsInOrder: ReportReceiptRow[];
+};
+
 // Receipts: 4 per page in a 2×2 grid for readability (best practice for audit/expense reports)
 const RECEIPTS_PER_PAGE = 4;
 const PAGE_MARGIN = 15;
@@ -269,5 +300,244 @@ export function downloadPdfReport(
       /\/|\\/g,
       "-"
     );
+  doc.save(name);
+}
+
+/**
+ * Builds a project report PDF with:
+ * 1. Project info + initial budget plan table
+ * 2. Actual expenditures table + summary
+ * 3. Receipts in order, 4 per page in a 2×2 grid (same as cashflow report)
+ */
+export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const pageW = doc.getPageWidth();
+  let y = PAGE_MARGIN;
+
+  // ----- Title & project info -----
+  doc.setFontSize(18);
+  doc.setFont("helvetica", "bold");
+  doc.text(`Project Report: ${data.project.name}`, PAGE_MARGIN, y);
+  y += 10;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.text(`Generated: ${new Date().toLocaleString("en-PH")}`, PAGE_MARGIN, y);
+  y += 6;
+  if (data.project.category) {
+    doc.text(`Category: ${data.project.category}`, PAGE_MARGIN, y);
+    y += 6;
+  }
+  if (data.project.eventDate) {
+    doc.text(
+      `Event Date: ${new Date(data.project.eventDate).toLocaleDateString("en-PH")}`,
+      PAGE_MARGIN,
+      y
+    );
+    y += 6;
+  }
+  doc.text(`Status: ${data.project.status}`, PAGE_MARGIN, y);
+  y += 6;
+  if (data.project.description) {
+    doc.setFontSize(9);
+    const descLines = doc.splitTextToSize(
+      data.project.description,
+      pageW - 2 * PAGE_MARGIN
+    );
+    doc.text(descLines, PAGE_MARGIN, y);
+    y += descLines.length * 5 + 4;
+  }
+  doc.setFontSize(10);
+  y += 4;
+
+  // ----- Initial Budget Plan -----
+  doc.setFontSize(12);
+  doc.setFont("helvetica", "bold");
+  doc.text("Initial Budget Plan", PAGE_MARGIN, y);
+  y += 8;
+  doc.setFont("helvetica", "normal");
+
+  if (data.budgetPlanRows.length === 0) {
+    doc.setFontSize(9);
+    doc.text("No budget items.", PAGE_MARGIN, y);
+    y += 10;
+  } else {
+    autoTable(doc, {
+      startY: y,
+      head: [["Item", "Description", "Estimated Amount", "Notes"]],
+      body: data.budgetPlanRows.map((r) => [
+        r.itemName.slice(0, 28) + (r.itemName.length > 28 ? "…" : ""),
+        (r.description || "—").slice(0, 32) + (r.description.length > 32 ? "…" : ""),
+        formatCurrency(r.estimatedAmount),
+        (r.notes || "—").slice(0, 24) + (r.notes.length > 24 ? "…" : ""),
+      ]),
+      margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
+      styles: { fontSize: 8, font: "helvetica", fontStyle: "normal" },
+      headStyles: { fillColor: [66, 66, 66], fontSize: 8, font: "helvetica", fontStyle: "normal" },
+      alternateRowStyles: { fillColor: [245, 245, 245] },
+      columnStyles: {
+        0: { cellWidth: 35 },
+        1: { cellWidth: 50, overflow: "ellipsize" },
+        2: { cellWidth: 38, halign: "right" },
+        3: { cellWidth: 45, overflow: "ellipsize" },
+      },
+    });
+    y =
+      (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y;
+    y += 10;
+  }
+
+  // ----- Actual Expenditures -----
+  doc.setFontSize(12);
+  doc.setFont("helvetica", "bold");
+  doc.text("Actual Expenditures", PAGE_MARGIN, y);
+  y += 8;
+  doc.setFont("helvetica", "normal");
+
+  if (data.expenditureRows.length === 0) {
+    doc.setFontSize(9);
+    doc.text("No linked expenses yet.", PAGE_MARGIN, y);
+    y += 10;
+  } else {
+    autoTable(doc, {
+      startY: y,
+      head: [["Date", "Budget Item", "Description", "Amount"]],
+      body: data.expenditureRows.map((r) => [
+        new Date(r.date).toLocaleDateString("en-PH"),
+        r.budgetItemName.slice(0, 20) + (r.budgetItemName.length > 20 ? "…" : ""),
+        r.description.slice(0, 38) + (r.description.length > 38 ? "…" : ""),
+        formatCurrency(r.amount),
+      ]),
+      margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
+      styles: { fontSize: 8, font: "helvetica", fontStyle: "normal" },
+      headStyles: { fillColor: [66, 66, 66], fontSize: 8, font: "helvetica", fontStyle: "normal" },
+      alternateRowStyles: { fillColor: [245, 245, 245] },
+      columnStyles: {
+        0: { cellWidth: 24 },
+        1: { cellWidth: 32, overflow: "ellipsize" },
+        2: { cellWidth: 62, overflow: "ellipsize" },
+        3: { cellWidth: 40, halign: "right" },
+      },
+    });
+    y =
+      (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y;
+    y += 10;
+  }
+
+  // ----- Summary -----
+  doc.setFontSize(10);
+  doc.setFont("helvetica", "bold");
+  doc.text("Total Budget:", PAGE_MARGIN, y);
+  doc.text(formatCurrency(data.totalBudget), pageW - PAGE_MARGIN - 45, y, { align: "right" });
+  y += 7;
+  doc.text("Total Spent:", PAGE_MARGIN, y);
+  doc.text(formatCurrency(data.totalActual), pageW - PAGE_MARGIN - 45, y, { align: "right" });
+  y += 7;
+  const variance = data.totalBudget - data.totalActual;
+  doc.text("Variance (Remaining):", PAGE_MARGIN, y);
+  const varianceStr =
+    variance >= 0 ? formatCurrency(variance) : `- ${formatCurrency(Math.abs(variance))}`;
+  doc.text(varianceStr, pageW - PAGE_MARGIN - 45, y, { align: "right" });
+  doc.setFont("helvetica", "normal");
+
+  // ----- Receipts section: same 2×2 grid as cashflow report -----
+  if (data.receiptsInOrder.length > 0) {
+    doc.addPage();
+    const totalReceiptPages = Math.ceil(data.receiptsInOrder.length / RECEIPTS_PER_PAGE);
+    const cols = 2;
+    const receiptStartY = 22;
+
+    data.receiptsInOrder.forEach((row, index) => {
+      const pageIndex = Math.floor(index / RECEIPTS_PER_PAGE);
+      const indexOnPage = index % RECEIPTS_PER_PAGE;
+      const col = indexOnPage % cols;
+      const rowIdx = Math.floor(indexOnPage / cols);
+
+      if (pageIndex > 0 && indexOnPage === 0) {
+        doc.addPage();
+      }
+
+      if (indexOnPage === 0) {
+        doc.setFontSize(14);
+        doc.setFont("helvetica", "bold");
+        doc.text(
+          pageIndex === 0 ? "Receipts" : "Receipts (continued)",
+          PAGE_MARGIN,
+          14
+        );
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9);
+        doc.text(
+          `Page ${pageIndex + 1} of ${totalReceiptPages} · ${data.receiptsInOrder.length} receipt(s)`,
+          pageW - PAGE_MARGIN,
+          14,
+          { align: "right" }
+        );
+      }
+
+      const cellX = PAGE_MARGIN + col * (RECEIPT_CELL_W + RECEIPT_GAP);
+      const cellY = receiptStartY + rowIdx * (RECEIPT_CELL_H + RECEIPT_GAP);
+
+      doc.setDrawColor(220, 220, 220);
+      doc.setLineWidth(0.2);
+      doc.rect(cellX, cellY, RECEIPT_CELL_W, RECEIPT_CELL_H, "S");
+
+      const caption =
+        (row.entryDescription.length > 32
+          ? row.entryDescription.slice(0, 32) + "…"
+          : row.entryDescription) +
+        " · " +
+        formatCurrency(row.amount);
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "bold");
+      doc.text(caption, cellX + 3, cellY + 5.5, { maxWidth: RECEIPT_CELL_W - 6 });
+      doc.setFont("helvetica", "normal");
+
+      const imgBoxX = cellX + 2;
+      const imgBoxY = cellY + RECEIPT_CAPTION_H;
+      const imgBoxW = RECEIPT_IMG_W;
+      const imgBoxH = RECEIPT_IMG_H;
+
+      try {
+        const mime = row.receipt.imageType ?? "image/jpeg";
+        const imgFormat = mime.includes("png") ? "PNG" : "JPEG";
+        const dataUrl = row.receipt.imageData.startsWith("data:")
+          ? row.receipt.imageData
+          : `data:${mime};base64,${row.receipt.imageData}`;
+        doc.addImage(dataUrl, imgFormat, imgBoxX, imgBoxY, imgBoxW, imgBoxH, undefined, "FAST");
+      } catch {
+        doc.setFillColor(248, 248, 248);
+        doc.rect(imgBoxX, imgBoxY, imgBoxW, imgBoxH, "F");
+        doc.setFontSize(9);
+        doc.setTextColor(120, 120, 120);
+        doc.text("Image unavailable", imgBoxX + imgBoxW / 2, imgBoxY + imgBoxH / 2 - 2, {
+          align: "center",
+        });
+        doc.setTextColor(0, 0, 0);
+      }
+
+      const footerText =
+        row.receipt.submitterName +
+        " — " +
+        (row.receipt.purpose.length > 36 ? row.receipt.purpose.slice(0, 36) + "…" : row.receipt.purpose);
+      doc.setFontSize(7);
+      doc.setTextColor(80, 80, 80);
+      doc.text(footerText, cellX + 3, cellY + RECEIPT_CELL_H - 3, {
+        maxWidth: RECEIPT_CELL_W - 6,
+      });
+      doc.setTextColor(0, 0, 0);
+    });
+  }
+
+  return doc;
+}
+
+export function downloadProjectReportPdf(
+  data: ProjectReportData,
+  options: { filename?: string } = {}
+): void {
+  const doc = buildProjectReportPdf(data);
+  const safeName = data.project.name.replace(/[/\\?%*:|"<>]/g, "-").slice(0, 80);
+  const name =
+    options.filename ?? `project-report-${safeName}-${new Date().toISOString().slice(0, 10)}.pdf`;
   doc.save(name);
 }

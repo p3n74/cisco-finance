@@ -2261,6 +2261,145 @@ export const appRouter = router({
           endingCashFlow,
         };
       }),
+
+    // Project report: project info, budget plan, expenditures, receipts in order
+    getProjectReportData: protectedProcedure
+      .input(z.object({ projectId: z.string() }))
+      .query(async ({ ctx, input }) => {
+        const project = await ctx.prisma.budgetProject.findFirst({
+          where: { id: input.projectId, isActive: true },
+          include: {
+            items: {
+              where: { isActive: true },
+              orderBy: { createdAt: "asc" },
+              include: {
+                expenses: {
+                  orderBy: { createdAt: "asc" },
+                  include: {
+                    cashflowEntry: {
+                      include: {
+                        receiptSubmissions: {
+                          select: {
+                            id: true,
+                            submitterName: true,
+                            purpose: true,
+                            imageData: true,
+                            imageType: true,
+                            createdAt: true,
+                          },
+                          orderBy: { createdAt: "asc" },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        });
+        if (!project) return null;
+
+        const totalBudget = project.items.reduce(
+          (sum, item) => sum + Number(item.estimatedAmount),
+          0
+        );
+        const totalActual = project.items.reduce(
+          (sum, item) =>
+            sum +
+            item.expenses.reduce(
+              (expSum, exp) => expSum + Math.abs(Number(exp.cashflowEntry.amount)),
+              0
+            ),
+          0
+        );
+
+        const budgetPlanRows = project.items.map((item) => ({
+          itemName: item.name,
+          description: item.description ?? "",
+          estimatedAmount: Number(item.estimatedAmount),
+          notes: item.notes ?? "",
+        }));
+
+        type ExpenditureRow = {
+          date: Date;
+          budgetItemName: string;
+          description: string;
+          amount: number;
+          cashflowEntryId: string;
+        };
+        type ReceiptRow = {
+          entryId: string;
+          entryDate: Date;
+          entryDescription: string;
+          amount: number;
+          receipt: {
+            id: string;
+            imageData: string;
+            imageType: string | null;
+            submitterName: string;
+            purpose: string;
+          };
+        };
+
+        const expenseEntries: { date: Date; budgetItemName: string; entry: (typeof project.items)[0]["expenses"][0]["cashflowEntry"] }[] = [];
+        for (const item of project.items) {
+          for (const exp of item.expenses) {
+            expenseEntries.push({
+              date: exp.cashflowEntry.date,
+              budgetItemName: item.name,
+              entry: exp.cashflowEntry,
+            });
+          }
+        }
+        expenseEntries.sort(
+          (a, b) =>
+            new Date(a.date).getTime() - new Date(b.date).getTime() ||
+            a.budgetItemName.localeCompare(b.budgetItemName)
+        );
+
+        const expenditureRows: ExpenditureRow[] = expenseEntries.map(({ date, budgetItemName, entry }) => ({
+          date,
+          budgetItemName,
+          description: entry.description,
+          amount: Math.abs(Number(entry.amount)),
+          cashflowEntryId: entry.id,
+        }));
+
+        const receiptsInOrder: ReceiptRow[] = [];
+        for (const { entry } of expenseEntries) {
+          for (const sub of entry.receiptSubmissions) {
+            receiptsInOrder.push({
+              entryId: entry.id,
+              entryDate: entry.date,
+              entryDescription: entry.description,
+              amount: Math.abs(Number(entry.amount)),
+              receipt: {
+                id: sub.id,
+                imageData: sub.imageData,
+                imageType: sub.imageType,
+                submitterName: sub.submitterName,
+                purpose: sub.purpose,
+              },
+            });
+          }
+        }
+
+        return {
+          project: {
+            id: project.id,
+            name: project.name,
+            description: project.description ?? "",
+            category: project.category ?? "",
+            eventDate: project.eventDate,
+            status: project.status,
+          },
+          totalBudget,
+          totalActual,
+          budgetPlanRows,
+          expenditureRows,
+          receiptsInOrder,
+        };
+      }),
   }),
 });
 export type AppRouter = typeof appRouter;

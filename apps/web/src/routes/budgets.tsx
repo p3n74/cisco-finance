@@ -1,8 +1,10 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useState } from "react";
+import { toast } from "sonner";
 
 import { authClient } from "@/lib/auth-client";
+import { downloadProjectReportPdf } from "@/lib/pdf-report";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { queryClient, trpc } from "@/utils/trpc";
+import { FileDown, Loader2 } from "lucide-react";
 
 export const Route = createFileRoute("/budgets")({
   component: BudgetsRoute,
@@ -83,6 +86,7 @@ function BudgetsRoute() {
   const [linkingToItemId, setLinkingToItemId] = useState<string | null>(null);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [pdfGeneratingProjectId, setPdfGeneratingProjectId] = useState<string | null>(null);
 
   // Form states
   const [projectForm, setProjectForm] = useState({
@@ -380,38 +384,75 @@ function BudgetsRoute() {
                 {isExpanded && (
                   <CardContent className="border-t pt-4">
                     {/* Project Actions — only for VP Finance, Treasurer, Auditor, Ways and Means */}
-                    {canEditBudgets && (
-                      <div className="mb-4 flex flex-wrap gap-2">
-                        <Button size="sm" variant="outline" onClick={() => openAddItemDialog(project.id)}>
-                          Add Item
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => openEditProjectDialog(project)}>
-                          Edit Project
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => toggleProjectStatus.mutate({
-                            id: project.id,
-                            status: project.status === "completed" ? "planned" : "completed",
-                          })}
-                        >
-                          Mark as {project.status === "completed" ? "Planned" : "Completed"}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="text-rose-600 hover:text-rose-700"
-                          onClick={() => {
-                            if (confirm("Are you sure you want to archive this project?")) {
-                              archiveProject.mutate({ id: project.id });
+                    <div className="mb-4 flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={!!pdfGeneratingProjectId}
+                        onClick={async () => {
+                          setPdfGeneratingProjectId(project.id);
+                          try {
+                            const data = await queryClient.fetchQuery(
+                              trpc.report.getProjectReportData.queryOptions({ projectId: project.id })
+                            );
+                            if (!data) {
+                              toast.error("Project not found or unavailable.");
+                              return;
                             }
-                          }}
-                        >
-                          Archive
-                        </Button>
-                      </div>
-                    )}
+                            downloadProjectReportPdf(data);
+                            toast.success("Project report PDF downloaded.");
+                          } catch (err) {
+                            toast.error(err instanceof Error ? err.message : "Failed to generate PDF.");
+                          } finally {
+                            setPdfGeneratingProjectId(null);
+                          }
+                        }}
+                      >
+                        {pdfGeneratingProjectId === project.id ? (
+                          <>
+                            <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                            Generating…
+                          </>
+                        ) : (
+                          <>
+                            <FileDown className="mr-1.5 size-3.5" />
+                            Download Project Report PDF
+                          </>
+                        )}
+                      </Button>
+                      {canEditBudgets && (
+                        <>
+                          <Button size="sm" variant="outline" onClick={() => openAddItemDialog(project.id)}>
+                            Add Item
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => openEditProjectDialog(project)}>
+                            Edit Project
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => toggleProjectStatus.mutate({
+                              id: project.id,
+                              status: project.status === "completed" ? "planned" : "completed",
+                            })}
+                          >
+                            Mark as {project.status === "completed" ? "Planned" : "Completed"}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-rose-600 hover:text-rose-700"
+                            onClick={() => {
+                              if (confirm("Are you sure you want to archive this project?")) {
+                                archiveProject.mutate({ id: project.id });
+                              }
+                            }}
+                          >
+                            Archive
+                          </Button>
+                        </>
+                      )}
+                    </div>
 
                     {/* Budget Items Table */}
                     {project.items.length === 0 ? (
