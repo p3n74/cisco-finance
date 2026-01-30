@@ -49,7 +49,8 @@ app.use(
 
 app.use(express.json());
 
-app.get("/", (_req, res) => {
+// Health check (for load balancers / monitoring)
+app.get("/health", (_req, res) => {
   res.status(200).send("OK");
 });
 
