@@ -17,6 +17,7 @@
     "@hono/trpc-server": "^0.4.0",
     "@trpc/server": "catalog:",
     "better-auth": "catalog:",
+    "compression": "^1.8.1",
     "cors": "^2.8.5",
     "dotenv": "catalog:",
     "express": "^5.1.0",

@@ -6,7 +6,7 @@
  */
 
 const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
-const MAX_REQUESTS = 10;
+const MAX_REQUESTS = 50; // relaxed from 10 to allow normal use (e.g. multiple receipts)
 
 const store = new Map<string, { count: number; resetAt: number }>();
 

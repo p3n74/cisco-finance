@@ -14,4 +14,21 @@ export default defineConfig({
   server: {
     port: 3001,
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // Split heavy, self-contained libs to load in parallel and cache separately
+        manualChunks: (id) => {
+          if (id.includes("node_modules")) {
+            if (id.includes("jspdf") || id.includes("html2canvas")) return "pdf";
+            if (id.includes("lucide-react")) return "icons";
+            if (id.includes("socket.io-client")) return "socket";
+          }
+        },
+        chunkFileNames: "assets/[name]-[hash].js",
+        assetFileNames: "assets/[name]-[hash][extname]",
+      },
+    },
+    chunkSizeWarningLimit: 600,
+  },
 });

@@ -4,6 +4,7 @@ import { auth } from "@cisco-finance/auth";
 import { env } from "@cisco-finance/env/server";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { toNodeHandler } from "better-auth/node";
+import compression from "compression";
 import cors from "cors";
 import express from "express";
 import { createContext, setWsEmitter, setPresenceGetter } from "@cisco-finance/api/context";
@@ -17,6 +18,9 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const httpServer = createServer(app);
+
+// Compress responses (gzip) for faster transfer
+app.use(compression());
 
 // Initialize WebSocket server
 initWebSocket(httpServer, env.CORS_ORIGIN);
@@ -60,9 +64,20 @@ app.get("/ws/health", (_req, res) => {
   res.status(200).json({ status: "ok", websocket: true });
 });
 
-// Serve static files from the web app
+// Serve static files from the web app (cache hashed assets 1 year, index.html no store)
 const webDistPath = path.resolve(__dirname, "../../web/dist");
-app.use(express.static(webDistPath));
+app.use(
+  express.static(webDistPath, {
+    maxAge: "1y",
+    immutable: true,
+    setHeaders: (res, filePath) => {
+      // Don't cache index.html so clients get updates
+      if (filePath.endsWith("index.html")) {
+        res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      }
+    },
+  }),
+);
 
 // Fallback to index.html for SPA routing
 app.get("/*path", (req, res, next) => {

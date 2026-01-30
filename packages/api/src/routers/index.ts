@@ -221,7 +221,7 @@ export const appRouter = router({
           if (!allowed) {
             throw new TRPCError({
               code: "TOO_MANY_REQUESTS",
-              message: "Too many submissions. Please try again in 15 minutes.",
+              message: "Too many submissions from your connection. Please try again later.",
             });
           }
         }

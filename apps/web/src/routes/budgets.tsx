@@ -80,18 +80,7 @@ function BudgetsRoute() {
   const projectsQuery = useQuery({ ...projectsQueryOptions, enabled: isWhitelisted });
   const projects = projectsQuery.data?.items ?? [];
 
-  if (myRoleQuery.isLoading) {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center">
-        <Loader2 className="size-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-  if (myRoleQuery.isSuccess && !isWhitelisted) {
-    return <NotWhitelistedView />;
-  }
-
-  // State for dialogs
+  // State for dialogs (all hooks must run before any conditional return)
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
   const [expandedProjectId, setExpandedProjectId] = useState<string | null>(null);
   const [isAddItemOpen, setIsAddItemOpen] = useState(false);
@@ -104,7 +93,6 @@ function BudgetsRoute() {
   const [confirmArchiveProjectId, setConfirmArchiveProjectId] = useState<string | null>(null);
   const [confirmDeleteItemId, setConfirmDeleteItemId] = useState<string | null>(null);
 
-  // Form states
   const [projectForm, setProjectForm] = useState({
     name: "",
     description: "",
@@ -121,7 +109,6 @@ function BudgetsRoute() {
 
   const [selectedCashflowId, setSelectedCashflowId] = useState("");
 
-  // Unlinked cashflows query (for linking dialog)
   const unlinkedCashflowsQueryOptions = trpc.budgetItems.getUnlinkedCashflows.queryOptions(
     { budgetItemId: linkingToItemId ?? "" },
     { enabled: !!linkingToItemId }
@@ -129,7 +116,6 @@ function BudgetsRoute() {
   const unlinkedCashflowsQuery = useQuery(unlinkedCashflowsQueryOptions);
   const unlinkedCashflows = unlinkedCashflowsQuery.data ?? [];
 
-  // Mutations
   const createProject = useMutation(
     trpc.budgetProjects.create.mutationOptions({
       onSuccess: () => {
@@ -216,6 +202,17 @@ function BudgetsRoute() {
       },
     })
   );
+
+  if (myRoleQuery.isLoading) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center">
+        <Loader2 className="size-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (myRoleQuery.isSuccess && !isWhitelisted) {
+    return <NotWhitelistedView />;
+  }
 
   // Calculate totals
   const totalBudget = projects.reduce((sum, p) => sum + p.totalBudget, 0);

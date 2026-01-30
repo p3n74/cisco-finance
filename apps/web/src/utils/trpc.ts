@@ -7,6 +7,14 @@ import { createTRPCOptionsProxy } from "@trpc/tanstack-react-query";
 import { toast } from "sonner";
 
 export const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Keep data fresh 30s; avoid refetch on every mount/navigation
+      staleTime: 30 * 1000,
+      // Keep unused data in cache 5 min for back/forward
+      gcTime: 5 * 60 * 1000,
+    },
+  },
   queryCache: new QueryCache({
     onError: (error, query) => {
       toast.error(error.message, {
