@@ -68,6 +68,10 @@ cisco-finance/
 │   └── db/          # Database schema & queries
 ```
 
+## Production (PM2 on DCISM)
+
+For production on the DCISM server (port 20172), see **[DEPLOY.md](./DEPLOY.md)** for PM2 setup, start/restart commands, and persistence (`pm2 save`).
+
 ## Available Scripts
 
 - `bun run dev`: Start all applications in development mode
@@ -79,3 +83,6 @@ cisco-finance/
 - `bun run db:push`: Push schema changes to database
 - `bun run db:studio`: Open database studio UI
 - `bun run check`: Run Biome formatting and linting
+- `bun run start:prod`: Start server with PM2 (production, port 20172)
+- `bun run restart:prod`: Restart PM2 app with production env
+- `bun run pm2:save`: Save PM2 process list for startup persistence

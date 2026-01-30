@@ -34,7 +34,11 @@
     "db:studio": "turbo -F @cisco-finance/db db:studio",
     "db:generate": "turbo -F @cisco-finance/db db:generate",
     "db:migrate": "turbo -F @cisco-finance/db db:migrate",
-    "check": "biome check --write ."
+    "check": "biome check --write .",
+    "start:prod": "pm2 start ecosystem.config.cjs --env production",
+    "pm2:save": "pm2 save",
+    "stop:prod": "pm2 stop cisco-finance-server",
+    "restart:prod": "pm2 restart cisco-finance-server --env production"
   },
   "dependencies": {
     "@cisco-finance/env": "workspace:*",

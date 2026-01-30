@@ -71,7 +71,8 @@ app.get("/*path", (req, res, next) => {
   res.sendFile(path.join(webDistPath, "index.html"));
 });
 
-httpServer.listen(3000, () => {
-  console.log("Server is running on http://localhost:3000");
+const port = env.PORT;
+httpServer.listen(port, () => {
+  console.log(`Server is running on http://localhost:${port}`);
   console.log("WebSocket server is ready for connections");
 });

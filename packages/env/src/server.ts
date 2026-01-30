@@ -14,6 +14,7 @@ export const env = createEnv({
     EMAIL_FROM: z.string().email().optional().default("placeholder@gmail.com"),
     EMAIL_PASSWORD: z.string().min(1).optional().default("placeholder"),
     NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
+    PORT: z.coerce.number().optional().default(3000),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,
