@@ -33,6 +33,10 @@ const formatCurrency = (value: number) =>
 function AccountsRoute() {
   const listQueryOptions = trpc.accountEntries.list.queryOptions();
   const entriesQuery = useQuery(listQueryOptions);
+  const roleQuery = useQuery(trpc.team.getMyRole.queryOptions());
+  const canEditAccounts =
+    roleQuery.data?.role === "TREASURER" || roleQuery.data?.role === "VP_FINANCE";
+
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [newEntry, setNewEntry] = useState({
@@ -112,9 +116,11 @@ function AccountsRoute() {
           </p>
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <Button variant="outline" onClick={() => setIsDialogOpen(true)}>
-            New transaction
-          </Button>
+          {canEditAccounts && (
+            <Button variant="outline" onClick={() => setIsDialogOpen(true)}>
+              New transaction
+            </Button>
+          )}
           <DialogPopup>
             <DialogHeader>
               <DialogTitle>New account transaction</DialogTitle>
@@ -314,37 +320,46 @@ function AccountsRoute() {
                         </td>
                         <td className="px-4 py-3 text-right">
                           {entry.isActive ? (
-                            <div className="flex justify-end gap-2">
-                              <Button
-                                size="xs"
-                                variant="outline"
-                                onClick={() => {
-                                  setEditingId(entry.id);
-                                  const account = ACCOUNT_OPTIONS.includes(
-                                    entry.account as (typeof ACCOUNT_OPTIONS)[number],
-                                  )
-                                    ? (entry.account as (typeof ACCOUNT_OPTIONS)[number])
-                                    : ACCOUNT_OPTIONS[0];
-                                  setEditForm({
-                                    id: entry.id,
-                                    date: new Date(entry.date).toISOString().slice(0, 10),
-                                    description: entry.description,
-                                    account,
-                                    amount: entry.amount.toString(),
-                                  });
-                                }}
-                              >
-                                Edit
-                              </Button>
-                              <Button
-                                size="xs"
-                                variant="outline"
-                                onClick={() => archiveEntry.mutate({ id: entry.id })}
-                                disabled={archiveEntry.isPending}
-                              >
-                                Archive
-                              </Button>
-                            </div>
+                            canEditAccounts ? (
+                              <div className="flex justify-end gap-2">
+                                <Button
+                                  size="xs"
+                                  variant="outline"
+                                  onClick={() => {
+                                    setEditingId(entry.id);
+                                    const account = ACCOUNT_OPTIONS.includes(
+                                      entry.account as (typeof ACCOUNT_OPTIONS)[number],
+                                    )
+                                      ? (entry.account as (typeof ACCOUNT_OPTIONS)[number])
+                                      : ACCOUNT_OPTIONS[0];
+                                    setEditForm({
+                                      id: entry.id,
+                                      date: new Date(entry.date).toISOString().slice(0, 10),
+                                      description: entry.description,
+                                      account,
+                                      amount: entry.amount.toString(),
+                                    });
+                                  }}
+                                >
+                                  Edit
+                                </Button>
+                                <Button
+                                  size="xs"
+                                  variant="outline"
+                                  onClick={() => archiveEntry.mutate({ id: entry.id })}
+                                  disabled={archiveEntry.isPending || entry.isVerified}
+                                  title={
+                                    entry.isVerified
+                                      ? "Cannot archive: linked to a verified transaction"
+                                      : undefined
+                                  }
+                                >
+                                  Archive
+                                </Button>
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )
                           ) : (
                             <span className="text-muted-foreground">Archived</span>
                           )}

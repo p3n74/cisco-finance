@@ -62,3 +62,16 @@ export const cashflowEditorProcedure = protectedProcedure.use(({ ctx, next }) =>
   }
   return next({ ctx });
 });
+
+/** Roles allowed to create/edit/archive account entries (treasury ledger). Only Treasurer and VP Finance. */
+const ACCOUNT_EDITOR_ROLES = ["VP_FINANCE", "TREASURER"] as const;
+
+export const accountEditorProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (!ctx.userRole || !(ACCOUNT_EDITOR_ROLES as readonly string[]).includes(ctx.userRole)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Only VP Finance and Treasurer can manage account entries. You can view only.",
+    });
+  }
+  return next({ ctx });
+});

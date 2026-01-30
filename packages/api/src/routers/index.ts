@@ -1,6 +1,7 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 
-import { budgetEditorProcedure, cashflowEditorProcedure, protectedProcedure, publicProcedure, receiptEditorProcedure, router } from "../index";
+import { accountEditorProcedure, budgetEditorProcedure, cashflowEditorProcedure, protectedProcedure, publicProcedure, receiptEditorProcedure, router } from "../index";
 import { WS_EVENTS, type WsEmitter, type Context } from "../context";
 import { teamRouter } from "./team";
 import { sendEmail } from "../services/email";
@@ -891,7 +892,7 @@ export const appRouter = router({
         amount: Number(e.amount),
       }));
     }),
-    create: protectedProcedure
+    create: accountEditorProcedure
       .input(
         z.object({
           date: z.coerce.date(),
@@ -941,7 +942,7 @@ export const appRouter = router({
 
         return entry;
       }),
-    update: protectedProcedure
+    update: accountEditorProcedure
       .input(
         z.object({
           id: z.string().min(1),
@@ -979,12 +980,20 @@ export const appRouter = router({
 
         return { updated: result.count };
       }),
-    archive: protectedProcedure
+    archive: accountEditorProcedure
       .input(z.object({ id: z.string().min(1) }))
       .mutation(async ({ ctx, input }) => {
         const entry = await ctx.prisma.accountEntry.findUnique({
           where: { id: input.id },
+          include: { cashflowEntry: true },
         });
+
+        if (entry?.cashflowEntry) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Cannot archive: this entry is linked to a verified transaction.",
+          });
+        }
 
         const result = await ctx.prisma.accountEntry.updateMany({
           where: {
