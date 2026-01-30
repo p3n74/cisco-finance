@@ -30,6 +30,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { queryClient, trpc } from "@/utils/trpc";
+import { NotWhitelistedView } from "@/components/not-whitelisted-view";
 import { ArrowDown, ArrowUp, Calendar, Filter, Loader2 } from "lucide-react";
 
 export const Route = createFileRoute("/receipts")({
@@ -56,12 +57,17 @@ const formatCurrency = (value: number) =>
 const PAGE_SIZE = 20;
 
 function ReceiptsRoute() {
+  const roleQueryOptions = trpc.team.getMyRole.queryOptions();
+  const roleQuery = useQuery(roleQueryOptions);
+  const isWhitelisted = (roleQuery.data?.role ?? null) !== null;
+  const userRole = roleQuery.data?.role;
+
   const listQueryOptions = trpc.receiptSubmission.list.queryOptions({ limit: 100 });
-  const submissionsQuery = useQuery(listQueryOptions);
+  const submissionsQuery = useQuery({ ...listQueryOptions, enabled: isWhitelisted });
   const countQueryOptions = trpc.receiptSubmission.countUnbound.queryOptions();
 
   const cashflowQueryOptions = trpc.cashflowEntries.list.queryOptions();
-  const cashflowQuery = useQuery(cashflowQueryOptions);
+  const cashflowQuery = useQuery({ ...cashflowQueryOptions, enabled: isWhitelisted });
 
   const [page, setPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
@@ -85,7 +91,7 @@ function ReceiptsRoute() {
     dateSingle: dateFilterMode === "single" && dateSingle ? dateSingle : undefined,
     dateSort,
   });
-  const listPageQuery = useQuery(listPageQueryOptions);
+  const listPageQuery = useQuery({ ...listPageQueryOptions, enabled: isWhitelisted });
   const tableItems = listPageQuery.data?.items ?? [];
   const hasMore = listPageQuery.data?.hasMore ?? false;
 
@@ -123,10 +129,7 @@ function ReceiptsRoute() {
   const bindingQuery = useQuery(bindingQueryOptions);
   const bindingSubmission = bindingQuery.data ?? null;
 
-  const roleQueryOptions = trpc.team.getMyRole.queryOptions();
-  const roleQuery = useQuery(roleQueryOptions);
-  const userRole = roleQuery.data?.role;
-  // VP Finance, Auditor, Treasurer can bind/endorse/mark reimbursed; Ways and Means and regular users view only
+  // VP Finance, Auditor, Treasurer can bind/endorse/mark reimbursed; Ways and Means and CISCO Officer view only
   const canEditReceipts =
     userRole === "VP_FINANCE" || userRole === "AUDITOR" || userRole === "TREASURER";
 
@@ -191,6 +194,17 @@ function ReceiptsRoute() {
   const unboundCount = submissions.filter((s) => !s.isBound).length;
   const pendingEndorsementCount = submissions.filter((s) => s.needsReimbursement && !s.endorsedAt && !s.reimbursedAt).length;
   const pendingPaymentCount = submissions.filter((s) => s.needsReimbursement && s.endorsedAt && !s.reimbursedAt).length;
+
+  if (roleQuery.isLoading) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center">
+        <Loader2 className="size-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (roleQuery.isSuccess && !isWhitelisted) {
+    return <NotWhitelistedView />;
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-6xl min-w-0 flex-col gap-4 px-3 py-4 sm:gap-6 sm:px-4 sm:py-6">

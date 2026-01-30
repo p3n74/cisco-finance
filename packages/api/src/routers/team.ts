@@ -1,18 +1,19 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { protectedProcedure, router } from "../index";
+import { protectedProcedure, router, whitelistedProcedure } from "../index";
 import { WS_EVENTS } from "../context";
 import { sendEmail } from "../services/email";
 import { env } from "@cisco-finance/env/server";
 import type { Context } from "../context";
 
-const ROLES = ["VP_FINANCE", "AUDITOR", "TREASURER", "WAYS_AND_MEANS"] as const;
+const ROLES = ["VP_FINANCE", "AUDITOR", "TREASURER", "WAYS_AND_MEANS", "CISCO_OFFICER"] as const;
 
 const ROLE_LABELS: Record<string, string> = {
   VP_FINANCE: "Vice President for Finance",
   AUDITOR: "Auditor",
   TREASURER: "Treasurer",
   WAYS_AND_MEANS: "Ways and Means Officer",
+  CISCO_OFFICER: "CISCO Officer (view only)",
 };
 
 // Helper to get the VP Finance's first name for email sender display
@@ -50,8 +51,8 @@ export const teamRouter = router({
     return { role: ctx.userRole };
   }),
 
-  // List all authorized users
-  list: protectedProcedure.query(async ({ ctx }) => {
+  // List all authorized users (whitelisted users only)
+  list: whitelistedProcedure.query(async ({ ctx }) => {
     const users = await ctx.prisma.authorizedUser.findMany({
       orderBy: { createdAt: "desc" },
     });

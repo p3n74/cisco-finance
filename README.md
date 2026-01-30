@@ -80,8 +80,9 @@ Authorized users are assigned one of these roles (managed on the **Team** page b
 | **AUDITOR** | Auditor |
 | **TREASURER** | Treasurer |
 | **WAYS_AND_MEANS** | Ways and Means Officer |
+| **CISCO_OFFICER** | CISCO Officer (view only) |
 
-Users who are not in the authorized list have no access to the app. Authorized users without a role, or with a role not listed above, are treated as **regular users** (view-only where restrictions apply).
+**Whitelist:** Only users in the authorized list can view any finance data. Logged-in users who are not in the authorized list see an "Access restricted" message and cannot view dashboard, team, budgets, accounts, or receipts. Authorized users with a role not listed above are treated as **regular users** (view-only where restrictions apply). **CISCO_OFFICER** can view everything but cannot edit (no budget/receipt/cashflow/account edits).
 
 ### Dashboard / Cashflow
 
@@ -139,8 +140,8 @@ Users who are not in the authorized list have no access to the app. Authorized u
 
 ### Implementation Notes
 
-- Procedures are defined in `packages/api/src/index.ts`: `budgetEditorProcedure`, `receiptEditorProcedure`, `cashflowEditorProcedure`.
-- Routers in `packages/api/src/routers/index.ts` use these procedures for mutations; read operations use `protectedProcedure` so any logged-in authorized user can view where applicable.
+- Procedures are defined in `packages/api/src/index.ts`: `whitelistedProcedure` (must be in authorized list to view), `budgetEditorProcedure`, `receiptEditorProcedure`, `cashflowEditorProcedure`.
+- Routers use `whitelistedProcedure` for all finance read operations (dashboard, budgets, receipts, accounts, cashflow, reports, team list, chat, presence); only whitelisted users can call these. Mutations use editor procedures or `vpFinanceProcedure` where applicable.
 - Frontend pages (`apps/web/src/routes/*.tsx`) use `trpc.team.getMyRole` and derive flags like `canEditBudgets`, `canEditReceipts`, `canEditDashboard` to show or hide actions.
 
 ## Production (PM2 on DCISM)

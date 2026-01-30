@@ -21,6 +21,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { NotWhitelistedView } from "@/components/not-whitelisted-view";
 import { queryClient, trpc } from "@/utils/trpc";
 import { FileDown, Loader2 } from "lucide-react";
 
@@ -68,15 +69,27 @@ const BUDGET_EDITOR_ROLES = ["VP_FINANCE", "TREASURER", "AUDITOR", "WAYS_AND_MEA
 function BudgetsRoute() {
   const { session } = Route.useRouteContext();
 
-  // Role: only VP Finance, Treasurer, Auditor, Ways and Means can edit; others view only
+  // Whitelist check: only whitelisted users can view finances
   const myRoleQueryOptions = trpc.team.getMyRole.queryOptions();
   const myRoleQuery = useQuery(myRoleQueryOptions);
+  const isWhitelisted = (myRoleQuery.data?.role ?? null) !== null;
   const canEditBudgets = (myRoleQuery.data?.role && (BUDGET_EDITOR_ROLES as readonly string[]).includes(myRoleQuery.data.role)) ?? false;
 
-  // Queries
+  // Queries (only when whitelisted)
   const projectsQueryOptions = trpc.budgetProjects.list.queryOptions();
-  const projectsQuery = useQuery(projectsQueryOptions);
+  const projectsQuery = useQuery({ ...projectsQueryOptions, enabled: isWhitelisted });
   const projects = projectsQuery.data?.items ?? [];
+
+  if (myRoleQuery.isLoading) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center">
+        <Loader2 className="size-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (myRoleQuery.isSuccess && !isWhitelisted) {
+    return <NotWhitelistedView />;
+  }
 
   // State for dialogs
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);

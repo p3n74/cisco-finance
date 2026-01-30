@@ -24,6 +24,17 @@ export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
   });
 });
 
+/** Whitelist: only users in the authorized_user table can view finance data. Normal logged-in users cannot. */
+export const whitelistedProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (ctx.userRole == null) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "You do not have access to CISCO Finance. Only whitelisted users can view finances.",
+    });
+  }
+  return next({ ctx });
+});
+
 /** Roles allowed to create/edit/archive budgets and items. Others can view only. */
 const BUDGET_EDITOR_ROLES = ["VP_FINANCE", "TREASURER", "AUDITOR", "WAYS_AND_MEANS"] as const;
 

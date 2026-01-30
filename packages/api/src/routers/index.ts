@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 
-import { accountEditorProcedure, budgetEditorProcedure, cashflowEditorProcedure, protectedProcedure, publicProcedure, receiptEditorProcedure, router } from "../index";
+import { accountEditorProcedure, budgetEditorProcedure, cashflowEditorProcedure, protectedProcedure, publicProcedure, receiptEditorProcedure, router, whitelistedProcedure } from "../index";
 import { WS_EVENTS, type WsEmitter, type Context } from "../context";
 import { teamRouter } from "./team";
 import { chatRouter } from "./chat";
@@ -84,7 +84,7 @@ export const appRouter = router({
 
   // Activity log
   activityLog: router({
-    list: protectedProcedure
+    list: whitelistedProcedure
       .input(
         z.object({
           limit: z.number().min(1).max(100).optional().default(50),
@@ -124,7 +124,7 @@ export const appRouter = router({
 
   // Dashboard overview stats
   overview: router({
-    stats: protectedProcedure.query(async ({ ctx }) => {
+    stats: whitelistedProcedure.query(async ({ ctx }) => {
       const [
         totalCashflow,
         unboundReceipts,
@@ -334,7 +334,7 @@ export const appRouter = router({
         return { id: submission.id, message: "Receipt submitted successfully" };
       }),
     // Admin: list all submissions (paginated)
-    list: protectedProcedure
+    list: whitelistedProcedure
       .input(
         z.object({
           limit: z.number().min(1).max(100).optional().default(50),
@@ -397,7 +397,7 @@ export const appRouter = router({
           nextCursor,
         };
       }),
-    listPage: protectedProcedure
+    listPage: whitelistedProcedure
       .input(
         z.object({
           limit: z.number().min(1).max(100).default(20),
@@ -518,7 +518,7 @@ export const appRouter = router({
         };
       }),
     // Admin: get single submission with image
-    getById: protectedProcedure
+    getById: whitelistedProcedure
       .input(z.object({ id: z.string() }))
       .query(async ({ ctx, input }) => {
         const submission = await ctx.prisma.receiptSubmission.findUnique({
@@ -650,14 +650,14 @@ export const appRouter = router({
         return result;
       }),
     // Count unbound submissions
-    countUnbound: protectedProcedure.query(async ({ ctx }) => {
+    countUnbound: whitelistedProcedure.query(async ({ ctx }) => {
       const count = await ctx.prisma.receiptSubmission.count({
         where: { cashflowEntryId: null },
       });
       return { count };
     }),
     // List unbound submissions (for binding dialog)
-    listUnbound: protectedProcedure.query(async ({ ctx }) => {
+    listUnbound: whitelistedProcedure.query(async ({ ctx }) => {
       const submissions = await ctx.prisma.receiptSubmission.findMany({
         where: { cashflowEntryId: null },
         orderBy: { createdAt: "desc" },
@@ -972,7 +972,7 @@ export const appRouter = router({
 
   // Account entries (treasury ledger)
   accountEntries: router({
-    list: protectedProcedure
+    list: whitelistedProcedure
       .input(
         z.object({
           limit: z.number().min(1).max(100).optional().default(50),
@@ -1011,7 +1011,7 @@ export const appRouter = router({
           nextCursor,
         };
       }),
-    listPage: protectedProcedure
+    listPage: whitelistedProcedure
       .input(
         z.object({
           limit: z.number().min(1).max(100).default(20),
@@ -1103,7 +1103,7 @@ export const appRouter = router({
           hasMore,
         };
       }),
-    listUnverified: protectedProcedure.query(async ({ ctx }) => {
+    listUnverified: whitelistedProcedure.query(async ({ ctx }) => {
       const entries = await ctx.prisma.accountEntry.findMany({
         where: {
           isActive: true,
@@ -1270,7 +1270,7 @@ export const appRouter = router({
   // Budget Planning
   budgetProjects: router({
     // List all projects for user (paginated)
-    list: protectedProcedure
+    list: whitelistedProcedure
       .input(
         z.object({
           limit: z.number().min(1).max(50).optional().default(20),
@@ -1373,7 +1373,7 @@ export const appRouter = router({
       }),
 
     // Get single project by ID
-    getById: protectedProcedure
+    getById: whitelistedProcedure
       .input(z.object({ id: z.string() }))
       .query(async ({ ctx, input }) => {
         const project = await ctx.prisma.budgetProject.findFirst({
@@ -1573,7 +1573,7 @@ export const appRouter = router({
       }),
 
     // Get overview stats for dashboard
-    overview: protectedProcedure.query(async ({ ctx }) => {
+    overview: whitelistedProcedure.query(async ({ ctx }) => {
       const projects = await ctx.prisma.budgetProject.findMany({
         where: {
           isActive: true,
@@ -1849,7 +1849,7 @@ export const appRouter = router({
       }),
 
     // Get unlinked cashflow entries (for linking dropdown)
-    getUnlinkedCashflows: protectedProcedure
+    getUnlinkedCashflows: whitelistedProcedure
       .input(z.object({ budgetItemId: z.string() }))
       .query(async ({ ctx, input }) => {
         // Get already linked cashflow IDs for this budget item
@@ -1887,7 +1887,7 @@ export const appRouter = router({
 
   // Cashflow entries (verified official transactions)
   cashflowEntries: router({
-    list: protectedProcedure
+    list: whitelistedProcedure
       .input(
         z.object({
           limit: z.number().min(1).max(100).optional().default(50),
@@ -1934,7 +1934,7 @@ export const appRouter = router({
         };
       }),
     // Server-side paginated list with filters (only fetches one page from DB)
-    listPage: protectedProcedure
+    listPage: whitelistedProcedure
       .input(
         z.object({
           limit: z.number().min(1).max(100).default(20),
@@ -2048,7 +2048,7 @@ export const appRouter = router({
         };
       }),
     // Get receipts for a specific cashflow entry
-    getReceipts: protectedProcedure
+    getReceipts: whitelistedProcedure
       .input(z.object({ id: z.string() }))
       .query(async ({ ctx, input }) => {
         const entry = await ctx.prisma.cashflowEntry.findUnique({
@@ -2176,7 +2176,7 @@ export const appRouter = router({
 
   // PDF report: entries table + receipts in order (for client-side PDF generation)
   report: router({
-    getReportData: protectedProcedure
+    getReportData: whitelistedProcedure
       .input(
         z.object({
           dateFrom: z.string().optional(),
@@ -2285,7 +2285,7 @@ export const appRouter = router({
       }),
 
     // Project report: project info, budget plan, expenditures, receipts in order
-    getProjectReportData: protectedProcedure
+    getProjectReportData: whitelistedProcedure
       .input(z.object({ projectId: z.string() }))
       .query(async ({ ctx, input }) => {
         const project = await ctx.prisma.budgetProject.findFirst({

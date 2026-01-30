@@ -32,6 +32,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { downloadPdfReport } from "@/lib/pdf-report";
 import { queryClient, trpc } from "@/utils/trpc";
 import { toast } from "sonner";
+import { NotWhitelistedView } from "@/components/not-whitelisted-view";
 import { ArrowDown, ArrowUp, Calendar, FileDown, Filter, Info, Loader2 } from "lucide-react";
 
 export const Route = createFileRoute("/dashboard")({
@@ -54,16 +55,28 @@ function RouteComponent() {
   const { session } = Route.useRouteContext();
   const navigate = useNavigate();
 
-  // Only VP Finance and Auditor can verify transactions, attach/unbind receipts on dashboard
+  // Whitelist check: only whitelisted users can view finances
   const roleQueryOptions = trpc.team.getMyRole.queryOptions();
   const roleQuery = useQuery(roleQueryOptions);
+  const isWhitelisted = (roleQuery.data?.role ?? null) !== null;
   const canEditDashboard =
     roleQuery.data?.role === "VP_FINANCE" || roleQuery.data?.role === "AUDITOR";
+
+  if (roleQuery.isLoading) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center">
+        <Loader2 className="size-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (roleQuery.isSuccess && !isWhitelisted) {
+    return <NotWhitelistedView />;
+  }
 
   const cashflowQueryOptions = trpc.cashflowEntries.list.queryOptions({
     limit: 100,
   });
-  const cashflowQuery = useQuery(cashflowQueryOptions);
+  const cashflowQuery = useQuery({ ...cashflowQueryOptions, enabled: isWhitelisted });
 
   // Table uses server-side pagination (listPage); stats use list(100)
   const PAGE_SIZE = 20;
@@ -87,23 +100,23 @@ function RouteComponent() {
     dateSingle: dateFilterMode === "single" && dateSingle ? dateSingle : undefined,
     dateSort,
   });
-  const listPageQuery = useQuery(listPageQueryOptions);
+  const listPageQuery = useQuery({ ...listPageQueryOptions, enabled: isWhitelisted });
   const tableItems = listPageQuery.data?.items ?? [];
   const hasMore = listPageQuery.data?.hasMore ?? false;
 
   const unverifiedQueryOptions = trpc.accountEntries.listUnverified.queryOptions();
-  const unverifiedQuery = useQuery(unverifiedQueryOptions);
+  const unverifiedQuery = useQuery({ ...unverifiedQueryOptions, enabled: isWhitelisted });
   
   const unboundReceiptsQueryOptions = trpc.receiptSubmission.countUnbound.queryOptions();
-  const unboundReceiptsQuery = useQuery(unboundReceiptsQueryOptions);
+  const unboundReceiptsQuery = useQuery({ ...unboundReceiptsQueryOptions, enabled: isWhitelisted });
   const unboundReceiptsCount = unboundReceiptsQuery.data?.count ?? 0;
 
   const budgetOverviewQueryOptions = trpc.budgetProjects.overview.queryOptions();
-  const budgetOverviewQuery = useQuery(budgetOverviewQueryOptions);
+  const budgetOverviewQuery = useQuery({ ...budgetOverviewQueryOptions, enabled: isWhitelisted });
   const budgetOverview = budgetOverviewQuery.data;
 
   const unboundListQueryOptions = trpc.receiptSubmission.listUnbound.queryOptions();
-  const unboundListQuery = useQuery(unboundListQueryOptions);
+  const unboundListQuery = useQuery({ ...unboundListQueryOptions, enabled: isWhitelisted });
   const unboundReceipts = unboundListQuery.data ?? [];
   
   const [isDialogOpen, setIsDialogOpen] = useState(false);

@@ -24,7 +24,7 @@ model User {
 model AuthorizedUser {
   id        String   @id @default(cuid())
   email     String   @unique
-  role      String   // VP_FINANCE, AUDITOR, TREASURER, WAYS_AND_MEANS
+  role      String   // VP_FINANCE, AUDITOR, TREASURER, WAYS_AND_MEANS, CISCO_OFFICER
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

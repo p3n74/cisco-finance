@@ -1,7 +1,8 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { Fragment, useEffect, useRef, useState } from "react";
 
+import { authClient } from "@/lib/auth-client";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,10 +28,21 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { queryClient, trpc } from "@/utils/trpc";
 import { toast } from "sonner";
+import { NotWhitelistedView } from "@/components/not-whitelisted-view";
 import { ArrowDown, ArrowUp, Calendar, Filter, Loader2 } from "lucide-react";
 
 export const Route = createFileRoute("/accounts")({
   component: AccountsRoute,
+  beforeLoad: async () => {
+    const session = await authClient.getSession();
+    if (!session.data) {
+      redirect({
+        to: "/",
+        throw: true,
+      });
+    }
+    return { session };
+  },
 });
 
 const ACCOUNT_OPTIONS = ["GCash", "GoTyme", "Cash", "BPI"] as const;
@@ -45,11 +57,13 @@ const formatCurrency = (value: number) =>
 const PAGE_SIZE = 20;
 
 function AccountsRoute() {
-  const listQueryOptions = trpc.accountEntries.list.queryOptions({ limit: 100 });
-  const entriesQuery = useQuery(listQueryOptions);
   const roleQuery = useQuery(trpc.team.getMyRole.queryOptions());
+  const isWhitelisted = (roleQuery.data?.role ?? null) !== null;
   const canEditAccounts =
     roleQuery.data?.role === "TREASURER" || roleQuery.data?.role === "VP_FINANCE";
+
+  const listQueryOptions = trpc.accountEntries.list.queryOptions({ limit: 100 });
+  const entriesQuery = useQuery({ ...listQueryOptions, enabled: isWhitelisted });
 
   const [page, setPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
@@ -73,7 +87,7 @@ function AccountsRoute() {
     dateSingle: dateFilterMode === "single" && dateSingle ? dateSingle : undefined,
     dateSort,
   });
-  const listPageQuery = useQuery(listPageQueryOptions);
+  const listPageQuery = useQuery({ ...listPageQueryOptions, enabled: isWhitelisted });
   const tableItems = listPageQuery.data?.items ?? [];
   const hasMore = listPageQuery.data?.hasMore ?? false;
 
@@ -160,6 +174,17 @@ function AccountsRoute() {
       .reduce((sum, entry) => sum + entry.amount, 0);
     return acc;
   }, {});
+
+  if (roleQuery.isLoading) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center">
+        <Loader2 className="size-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (roleQuery.isSuccess && !isWhitelisted) {
+    return <NotWhitelistedView />;
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-6xl min-w-0 flex-col gap-4 px-3 py-4 sm:gap-6 sm:px-4 sm:py-6">

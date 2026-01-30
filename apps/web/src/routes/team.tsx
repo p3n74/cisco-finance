@@ -1,7 +1,9 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useState } from "react";
-import { Trash2, UserPlus, Shield } from "lucide-react";
+import { Loader2, Trash2, UserPlus, Shield } from "lucide-react";
+
+import { NotWhitelistedView } from "@/components/not-whitelisted-view";
 
 import { authClient } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
@@ -42,6 +44,7 @@ const ROLE_LABELS: Record<string, string> = {
   AUDITOR: "Auditor",
   TREASURER: "Treasurer",
   WAYS_AND_MEANS: "Ways and Means Officer",
+  CISCO_OFFICER: "CISCO Officer (view only)",
 };
 
 const ROLES = [
@@ -49,6 +52,7 @@ const ROLES = [
   { value: "AUDITOR", label: "Auditor" },
   { value: "TREASURER", label: "Treasurer" },
   { value: "WAYS_AND_MEANS", label: "Ways and Means Officer" },
+  { value: "CISCO_OFFICER", label: "CISCO Officer (view only)" },
 ];
 
 function TeamRoute() {
@@ -60,11 +64,12 @@ function TeamRoute() {
     role: "AUDITOR",
   });
 
-  const teamQueryOptions = trpc.team.list.queryOptions();
-  const teamQuery = useQuery(teamQueryOptions);
-  
   const myRoleQueryOptions = trpc.team.getMyRole.queryOptions();
   const myRoleQuery = useQuery(myRoleQueryOptions);
+  const isWhitelisted = (myRoleQuery.data?.role ?? null) !== null;
+
+  const teamQueryOptions = trpc.team.list.queryOptions();
+  const teamQuery = useQuery({ ...teamQueryOptions, enabled: isWhitelisted });
   
   const isVP = myRoleQuery.data?.role === "VP_FINANCE";
 
@@ -72,6 +77,17 @@ function TeamRoute() {
     .map((u) => u.registeredUser?.id)
     .filter((id): id is string => !!id);
   const { statuses: presenceStatuses } = usePresence(teamUserIds, !!teamQuery.data?.length);
+
+  if (myRoleQuery.isLoading) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center">
+        <Loader2 className="size-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (myRoleQuery.isSuccess && !isWhitelisted) {
+    return <NotWhitelistedView />;
+  }
 
   const addMemberMutation = useMutation(
     trpc.team.add.mutationOptions({

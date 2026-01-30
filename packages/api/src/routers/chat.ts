@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { protectedProcedure, router } from "../index";
+import { protectedProcedure, router, whitelistedProcedure } from "../index";
 import { WS_EVENTS } from "../context";
 import { encryptChatMessage, decryptChatMessage } from "../services/chat-crypto";
 import { env } from "@cisco-finance/env/server";
@@ -11,8 +11,8 @@ import { env } from "@cisco-finance/env/server";
  * Open to any registered user (not limited to team members).
  */
 export const chatRouter = router({
-  // List conversations: all other registered users with last message preview
-  listConversations: protectedProcedure.query(async ({ ctx }) => {
+  // List conversations: all other registered users with last message preview (whitelisted only)
+  listConversations: whitelistedProcedure.query(async ({ ctx }) => {
     const users = await ctx.prisma.user.findMany({
       where: { id: { not: ctx.session.user.id } },
       select: { id: true, name: true, email: true, image: true },
@@ -79,7 +79,7 @@ export const chatRouter = router({
   }),
 
   // Get messages between current user and another user (decrypted)
-  getMessages: protectedProcedure
+  getMessages: whitelistedProcedure
     .input(
       z.object({
         otherUserId: z.string(),
@@ -152,7 +152,7 @@ export const chatRouter = router({
     }),
 
   // Total unread count for the current user (for badge on chat button)
-  getUnreadCount: protectedProcedure.query(async ({ ctx }) => {
+  getUnreadCount: whitelistedProcedure.query(async ({ ctx }) => {
     const count = await ctx.prisma.chatMessage.count({
       where: {
         receiverId: ctx.session.user.id,
@@ -163,7 +163,7 @@ export const chatRouter = router({
   }),
 
   // Send a message (encrypt, store, then emit via WS to receiver)
-  sendMessage: protectedProcedure
+  sendMessage: whitelistedProcedure
     .input(
       z.object({
         receiverId: z.string(),
