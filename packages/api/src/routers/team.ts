@@ -193,6 +193,27 @@ export const teamRouter = router({
         });
       }
 
+      // Block VP from removing themselves
+      if (user.email === ctx.session.user.email && user.role === "VP_FINANCE") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You cannot remove yourself. Ask another VP Finance to remove you if needed.",
+        });
+      }
+
+      // Block removing the last VP Finance (would lock out team management)
+      if (user.role === "VP_FINANCE") {
+        const vpCount = await ctx.prisma.authorizedUser.count({
+          where: { role: "VP_FINANCE" },
+        });
+        if (vpCount <= 1) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Cannot remove the last VP Finance. Add another VP first, then remove this user.",
+          });
+        }
+      }
+
       await ctx.prisma.authorizedUser.delete({
         where: { id: input.id },
       });

@@ -63,6 +63,16 @@ export function getPresenceGetter(): GetPresenceMap | null {
   return presenceGetter;
 }
 
+/** Client IP for rate limiting (e.g. public receipt submission). Uses X-Forwarded-For when behind a proxy. */
+function getClientIp(req: CreateExpressContextOptions["req"]): string | null {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (forwarded) {
+    const first = typeof forwarded === "string" ? forwarded.split(",")[0] : forwarded[0];
+    return first?.trim() ?? null;
+  }
+  return req.socket?.remoteAddress ?? null;
+}
+
 export async function createContext(opts: CreateExpressContextOptions) {
   const session = await auth.api.getSession({
     headers: fromNodeHeaders(opts.req.headers),
@@ -83,6 +93,7 @@ export async function createContext(opts: CreateExpressContextOptions) {
     prisma,
     ws: wsEmitter,
     getPresenceMap: presenceGetter ?? (() => ({})),
+    clientIp: getClientIp(opts.req),
   };
 }
 

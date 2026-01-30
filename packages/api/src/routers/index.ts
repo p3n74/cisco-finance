@@ -7,7 +7,11 @@ import { teamRouter } from "./team";
 import { chatRouter } from "./chat";
 import { presenceRouter } from "./presence";
 import { sendEmail } from "../services/email";
+import { checkRateLimit } from "../services/rate-limit";
 import { env } from "@cisco-finance/env/server";
+
+/** Max receipt image size: 5MB decoded. Base64 is ~4/3 larger, so ~6.67MB; use 7MB for the string limit. */
+const MAX_RECEIPT_IMAGE_BASE64_LENGTH = 7 * 1024 * 1024;
 
 const ACCOUNT_OPTIONS = ["GCash", "GoTyme", "Cash", "BPI"] as const;
 
@@ -192,7 +196,10 @@ export const appRouter = router({
         z.object({
           submitterName: z.string().min(2, "Name must be at least 2 characters"),
           purpose: z.string().min(5, "Please describe what this receipt is for"),
-          imageData: z.string().min(1, "Please upload a receipt image"),
+          imageData: z
+            .string()
+            .min(1, "Please upload a receipt image")
+            .max(MAX_RECEIPT_IMAGE_BASE64_LENGTH, "Image must be 5MB or smaller"),
           imageType: z.string().min(1, "Image type is required"),
           notes: z.string().optional(),
           // Reimbursement fields
@@ -208,6 +215,17 @@ export const appRouter = router({
         }),
       )
       .mutation(async ({ ctx, input }) => {
+        // Rate limit by IP to prevent spam/DoS (skip if IP unknown, e.g. in tests)
+        if (ctx.clientIp) {
+          const allowed = checkRateLimit(ctx.clientIp);
+          if (!allowed) {
+            throw new TRPCError({
+              code: "TOO_MANY_REQUESTS",
+              message: "Too many submissions. Please try again in 15 minutes.",
+            });
+          }
+        }
+
         const submission = await ctx.prisma.receiptSubmission.create({
           data: {
             submitterName: input.submitterName,
