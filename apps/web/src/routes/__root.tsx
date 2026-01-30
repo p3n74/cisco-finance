@@ -34,7 +34,7 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
     links: [
       {
         rel: "icon",
-        href: "/favicon.ico",
+        href: "/cisco-face-primary.ico",
       },
     ],
   }),
@@ -51,9 +51,9 @@ function RootComponent() {
         storageKey="vite-ui-theme"
       >
         <WebSocketProvider>
-          <div className="bg-image min-h-svh">
+          <div className="bg-image min-h-svh min-w-0 overflow-x-hidden">
             <Header />
-            <main className="pb-8">
+            <main className="min-w-0 pb-6 sm:pb-8">
               <Outlet />
             </main>
           </div>

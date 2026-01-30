@@ -108,7 +108,7 @@ function SignedInHome() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8">
+    <div className="mx-auto max-w-6xl min-w-0 px-3 py-6 sm:px-4 sm:py-8">
       {/* Header */}
       <div className="mb-8">
         <p className="text-xs font-medium uppercase tracking-widest text-primary">Home</p>
@@ -299,9 +299,14 @@ function SignedInHome() {
 
 function SignedOutHome() {
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8">
+    <div className="mx-auto max-w-6xl min-w-0 px-3 py-6 sm:px-4 sm:py-8">
       {/* Hero Section */}
       <div className="mb-12 text-center">
+        <img
+          src="/cisco-face-primary.ico"
+          alt="Cisco Finance"
+          className="mx-auto mb-4 h-16 w-16 rounded-2xl object-contain"
+        />
         <h1 className="mb-4 text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">
           Cisco Finance
         </h1>

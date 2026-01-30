@@ -11,7 +11,7 @@ function Card({
     <div
       data-slot="card"
       className={cn(
-        "flex flex-col gap-4 rounded-2xl p-5 text-card-foreground transition-all duration-200",
+        "flex min-w-0 flex-col gap-4 rounded-2xl p-4 text-card-foreground transition-all duration-200 sm:p-5",
         variant === "glass" && "glass hover:shadow-lg",
         variant === "solid" && "bg-card border border-border shadow-sm",
         variant === "subtle" && "glass-subtle",

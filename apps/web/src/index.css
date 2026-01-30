@@ -190,3 +190,9 @@
 .bg-image-alt::before {
   background-image: url("/images/bg2.jpg");
 }
+
+/* Mobile: horizontal scroll for tables, smooth and touch-friendly */
+.overflow-x-auto {
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
