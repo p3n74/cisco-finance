@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import z from "zod";
 
 import { authClient } from "@/lib/auth-client";
+import { NotWhitelistedView } from "@/components/not-whitelisted-view";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -19,6 +20,11 @@ export const Route = createFileRoute("/")({
 
 function LandingPage() {
   const { data: session, isPending } = authClient.useSession();
+  const roleQuery = useQuery({
+    ...trpc.team.getMyRole.queryOptions(),
+    enabled: !!session,
+  });
+  const isWhitelisted = (roleQuery.data?.role ?? null) !== null;
 
   if (isPending) {
     return (
@@ -28,7 +34,21 @@ function LandingPage() {
     );
   }
 
-  // Show dashboard overview if signed in
+  // Signed in but not whitelisted: show forbidden
+  if (session && roleQuery.isSuccess && !isWhitelisted) {
+    return <NotWhitelistedView />;
+  }
+
+  // Still loading role for signed-in user
+  if (session && roleQuery.isLoading) {
+    return (
+      <div className="flex min-h-[50vh] items-center justify-center">
+        <div className="text-muted-foreground">Loading...</div>
+      </div>
+    );
+  }
+
+  // Show dashboard overview if signed in and whitelisted
   if (session) {
     return <SignedInHome />;
   }

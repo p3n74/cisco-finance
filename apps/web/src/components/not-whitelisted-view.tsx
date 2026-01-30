@@ -27,7 +27,7 @@ export function NotWhitelistedView() {
           </div>
           <CardDescription>
             You don’t have access to CISCO Finance. Only whitelisted users can view finances. If you
-            believe you should have access, ask a Vice President for Finance to add you to the team.
+            believe you should have access, ask THE Vice President for Finance to add you to the team.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
