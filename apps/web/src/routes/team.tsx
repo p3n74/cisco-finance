@@ -15,6 +15,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { queryClient, trpc } from "@/utils/trpc";
@@ -51,6 +52,7 @@ const ROLES = [
 function TeamRoute() {
   const { session } = Route.useRouteContext();
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [confirmRemoveUserId, setConfirmRemoveUserId] = useState<string | null>(null);
   const [formState, setFormState] = useState({
     email: "",
     role: "AUDITOR",
@@ -82,6 +84,7 @@ function TeamRoute() {
     trpc.team.remove.mutationOptions({
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: teamQueryOptions.queryKey });
+        setConfirmRemoveUserId(null);
         toast.success("Team member removed successfully");
       },
       onError: (err) => {
@@ -92,6 +95,10 @@ function TeamRoute() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!formState.email.trim()) {
+      toast.error("Please fill out all required fields.");
+      return;
+    }
     // @ts-ignore - Role enum typing
     addMemberMutation.mutate(formState);
   };
@@ -190,11 +197,7 @@ function TeamRoute() {
                             variant="ghost"
                             size="icon"
                             className="text-rose-500 hover:bg-rose-500/10 hover:text-rose-600"
-                            onClick={() => {
-                              if (confirm("Are you sure you want to remove this user?")) {
-                                removeMemberMutation.mutate({ id: user.id });
-                              }
-                            }}
+                            onClick={() => setConfirmRemoveUserId(user.id)}
                             disabled={user.role === "VP_FINANCE" && user.email === session.data?.user.email} // Prevent self-delete if VP
                           >
                             <Trash2 className="h-4 w-4" />
@@ -225,7 +228,7 @@ function TeamRoute() {
               Authorize a new user by email. They will receive these permissions when they log in.
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form noValidate onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email Address</Label>
               <Input
@@ -266,6 +269,22 @@ function TeamRoute() {
           </form>
         </DialogPopup>
       </Dialog>
+
+      <ConfirmDialog
+        open={!!confirmRemoveUserId}
+        onOpenChange={(open) => !open && setConfirmRemoveUserId(null)}
+        title="Remove team member"
+        description="Are you sure you want to remove this user? They will lose access to the finance system."
+        confirmLabel="Remove"
+        cancelLabel="Cancel"
+        variant="destructive"
+        onConfirm={() => {
+          if (confirmRemoveUserId) {
+            removeMemberMutation.mutate({ id: confirmRemoveUserId });
+          }
+        }}
+        loading={removeMemberMutation.isPending}
+      />
     </div>
   );
 }

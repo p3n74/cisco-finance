@@ -17,6 +17,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -87,6 +88,8 @@ function BudgetsRoute() {
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [pdfGeneratingProjectId, setPdfGeneratingProjectId] = useState<string | null>(null);
+  const [confirmArchiveProjectId, setConfirmArchiveProjectId] = useState<string | null>(null);
+  const [confirmDeleteItemId, setConfirmDeleteItemId] = useState<string | null>(null);
 
   // Form states
   const [projectForm, setProjectForm] = useState({
@@ -138,6 +141,7 @@ function BudgetsRoute() {
     trpc.budgetProjects.archive.mutationOptions({
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: projectsQueryOptions.queryKey });
+        setConfirmArchiveProjectId(null);
       },
     })
   );
@@ -175,6 +179,7 @@ function BudgetsRoute() {
     trpc.budgetItems.delete.mutationOptions({
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: projectsQueryOptions.queryKey });
+        setConfirmDeleteItemId(null);
       },
     })
   );
@@ -442,11 +447,7 @@ function BudgetsRoute() {
                             size="sm"
                             variant="outline"
                             className="text-rose-600 hover:text-rose-700"
-                            onClick={() => {
-                              if (confirm("Are you sure you want to archive this project?")) {
-                                archiveProject.mutate({ id: project.id });
-                              }
-                            }}
+                            onClick={() => setConfirmArchiveProjectId(project.id)}
                           >
                             Archive
                           </Button>
@@ -537,12 +538,10 @@ function BudgetsRoute() {
                                           className="text-rose-600"
                                           onClick={() => {
                                             if (item.expenseCount > 0) {
-                                              alert("Cannot delete item with linked expenses. Unlink all expenses first.");
+                                              toast.error("Cannot delete item with linked expenses. Unlink all expenses first.");
                                               return;
                                             }
-                                            if (confirm("Delete this budget item?")) {
-                                              deleteItem.mutate({ id: item.id });
-                                            }
+                                            setConfirmDeleteItemId(item.id);
                                           }}
                                         >
                                           Delete
@@ -587,9 +586,14 @@ function BudgetsRoute() {
             </DialogDescription>
           </DialogHeader>
           <form
+            noValidate
             className="mt-4 space-y-4"
             onSubmit={(e) => {
               e.preventDefault();
+              if (!projectForm.name.trim()) {
+                toast.error("Please fill out all required fields.");
+                return;
+              }
               createProject.mutate({
                 name: projectForm.name,
                 description: projectForm.description || undefined,
@@ -658,10 +662,15 @@ function BudgetsRoute() {
             <DialogDescription>Update project details.</DialogDescription>
           </DialogHeader>
           <form
+            noValidate
             className="mt-4 space-y-4"
             onSubmit={(e) => {
               e.preventDefault();
               if (!editingProjectId) return;
+              if (!projectForm.name.trim()) {
+                toast.error("Please fill out all required fields.");
+                return;
+              }
               updateProject.mutate({
                 id: editingProjectId,
                 name: projectForm.name,
@@ -730,10 +739,15 @@ function BudgetsRoute() {
             </DialogDescription>
           </DialogHeader>
           <form
+            noValidate
             className="mt-4 space-y-4"
             onSubmit={(e) => {
               e.preventDefault();
               if (!addingItemToProjectId) return;
+              if (!itemForm.name.trim() || itemForm.estimatedAmount === "" || Number(itemForm.estimatedAmount) < 0) {
+                toast.error("Please fill out all required fields.");
+                return;
+              }
               createItem.mutate({
                 budgetProjectId: addingItemToProjectId,
                 name: itemForm.name,
@@ -805,10 +819,15 @@ function BudgetsRoute() {
             <DialogDescription>Update item details.</DialogDescription>
           </DialogHeader>
           <form
+            noValidate
             className="mt-4 space-y-4"
             onSubmit={(e) => {
               e.preventDefault();
               if (!editingItemId) return;
+              if (!itemForm.name.trim() || itemForm.estimatedAmount === "" || Number(itemForm.estimatedAmount) < 0) {
+                toast.error("Please fill out all required fields.");
+                return;
+              }
               updateItem.mutate({
                 id: editingItemId,
                 name: itemForm.name,
@@ -954,6 +973,38 @@ function BudgetsRoute() {
           </div>
         </DialogPopup>
       </Dialog>
+
+      <ConfirmDialog
+        open={!!confirmArchiveProjectId}
+        onOpenChange={(open) => !open && setConfirmArchiveProjectId(null)}
+        title="Archive project"
+        description="Are you sure you want to archive this project? You can view it in archived projects."
+        confirmLabel="Archive"
+        cancelLabel="Cancel"
+        variant="destructive"
+        onConfirm={() => {
+          if (confirmArchiveProjectId) {
+            archiveProject.mutate({ id: confirmArchiveProjectId });
+          }
+        }}
+        loading={archiveProject.isPending}
+      />
+
+      <ConfirmDialog
+        open={!!confirmDeleteItemId}
+        onOpenChange={(open) => !open && setConfirmDeleteItemId(null)}
+        title="Delete budget item"
+        description="Are you sure you want to delete this budget item? This cannot be undone."
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        variant="destructive"
+        onConfirm={() => {
+          if (confirmDeleteItemId) {
+            deleteItem.mutate({ id: confirmDeleteItemId });
+          }
+        }}
+        loading={deleteItem.isPending}
+      />
     </div>
   );
 }

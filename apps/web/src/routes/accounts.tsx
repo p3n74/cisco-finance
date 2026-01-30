@@ -26,6 +26,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { queryClient, trpc } from "@/utils/trpc";
+import { toast } from "sonner";
 import { ArrowDown, ArrowUp, Calendar, Filter, Loader2 } from "lucide-react";
 
 export const Route = createFileRoute("/accounts")({
@@ -184,9 +185,14 @@ function AccountsRoute() {
               </DialogDescription>
             </DialogHeader>
             <form
+              noValidate
               className="mt-4 space-y-4"
               onSubmit={(event) => {
                 event.preventDefault();
+                if (!newEntry.date.trim() || !newEntry.account.trim() || !newEntry.description.trim() || newEntry.amount === "") {
+                  toast.error("Please fill out all required fields.");
+                  return;
+                }
                 createEntry.mutate({
                   date: newEntry.date,
                   description: newEntry.description,
@@ -621,9 +627,14 @@ function AccountsRoute() {
                         <tr className="border-b bg-muted/30">
                           <td colSpan={8} className="px-4 py-4">
                             <form
+                              noValidate
                               className="grid gap-3 md:grid-cols-[1fr_2fr_1fr_1fr_auto]"
                               onSubmit={(event) => {
                                 event.preventDefault();
+                                if (!editForm.date.trim() || !editForm.description.trim() || !editForm.account.trim() || editForm.amount === "") {
+                                  toast.error("Please fill out all required fields.");
+                                  return;
+                                }
                                 updateEntry.mutate({
                                   id: editForm.id,
                                   date: editForm.date,

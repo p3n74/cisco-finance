@@ -31,6 +31,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { downloadPdfReport } from "@/lib/pdf-report";
 import { queryClient, trpc } from "@/utils/trpc";
+import { toast } from "sonner";
 import { ArrowDown, ArrowUp, Calendar, FileDown, Filter, Info, Loader2 } from "lucide-react";
 
 export const Route = createFileRoute("/dashboard")({
@@ -366,10 +367,15 @@ function RouteComponent() {
                 </DialogDescription>
               </DialogHeader>
               <form
+                noValidate
                 className="mt-4 space-y-4"
                 onSubmit={(event) => {
                   event.preventDefault();
                   if (!selectedAccountEntry) return;
+                  if (selectedAccountEntry && (!formState.description.trim() || !formState.category.trim())) {
+                    toast.error("Please fill out all required fields.");
+                    return;
+                  }
                   createCashflowEntry.mutate({
                     date: new Date(selectedAccountEntry.date).toISOString(),
                     description: formState.description,
@@ -1292,10 +1298,15 @@ function RouteComponent() {
               </div>
             ) : (
               <form
+                noValidate
                 className="space-y-4"
                 onSubmit={(e) => {
                   e.preventDefault();
                   if (!attachingToEntryId || !imageData) return;
+                  if (!uploadForm.submitterName.trim() || !uploadForm.purpose.trim()) {
+                    toast.error("Please fill out all required fields.");
+                    return;
+                  }
                   submitAndBindMutation.mutate({
                     submitterName: uploadForm.submitterName,
                     purpose: uploadForm.purpose,
