@@ -28,9 +28,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { downloadPdfReport } from "@/lib/pdf-report";
 import { queryClient, trpc } from "@/utils/trpc";
-import { ArrowDown, ArrowUp, Calendar, FileDown, Filter, Loader2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Calendar, FileDown, Filter, Info, Loader2 } from "lucide-react";
 
 export const Route = createFileRoute("/dashboard")({
   component: RouteComponent,
@@ -303,6 +304,9 @@ function RouteComponent() {
   const projectedCashflow =
     netCashflow - (budgetOverview?.totalBudget ?? 0);
   
+  const unverifiedNet = unverifiedEntries.reduce((sum, e) => sum + e.amount, 0);
+  const netMovement = netCashflow + unverifiedNet;
+  const deficit = netMovement - netCashflow;
   const unverifiedAmount = unverifiedEntries.reduce(
     (sum, e) => sum + Math.abs(e.amount),
     0,
@@ -312,7 +316,7 @@ function RouteComponent() {
     0,
   );
   const totalActivity = unverifiedAmount + totalVerified;
-  const deficitRatio = totalActivity === 0 ? 0 : unverifiedAmount / totalActivity;
+  const deficitRatio = totalActivity === 0 ? 0 : Math.min(Math.abs(deficit) / Math.max(totalActivity, 1), 1);
 
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat("en-PH", {
@@ -555,15 +559,35 @@ function RouteComponent() {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Pending Verification</CardDescription>
-            <CardTitle className="text-2xl text-amber-500">{formatCurrency(unverifiedAmount)}</CardTitle>
+            <div className="flex items-center gap-1.5">
+              <CardDescription>Deficit</CardDescription>
+              <TooltipProvider
+                side="top"
+                content={
+                  <p className="text-muted-foreground">
+                    Net movement (accounts) minus net cashflow (verified). Positive deficit means more income in accounts than verified—likely income not yet verified. Negative deficit means more expenses in accounts than verified—likely expenses not yet verified. Zero = in sync.
+                  </p>
+                }
+              >
+                <Info className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+              </TooltipProvider>
+            </div>
+            <CardTitle className={`text-2xl ${deficit === 0 ? "text-foreground" : deficit > 0 ? "text-emerald-500" : "text-rose-500"}`}>
+              {formatCurrency(deficit)}
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            <p className="text-xs text-muted-foreground">{unverifiedEntries.length} transactions</p>
+            <p className="text-xs text-muted-foreground">
+              {deficit === 0
+                ? "In sync (net movement = net cashflow)"
+                : deficit > 0
+                  ? "Likely income not yet verified"
+                  : "Likely expenses not yet verified"}
+            </p>
             <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
               <div
-                className={`h-2 rounded-full transition-all ${deficitRatio === 0 ? "bg-emerald-500" : "bg-amber-500"}`}
-                style={{ width: `${Math.min(deficitRatio * 100, 100)}%` }}
+                className={`h-2 rounded-full transition-all ${deficit === 0 ? "bg-emerald-500" : deficit > 0 ? "bg-emerald-500/80" : "bg-rose-500/80"}`}
+                style={{ width: `${(1 - deficitRatio) * 100}%` }}
               />
             </div>
           </CardContent>
@@ -847,10 +871,15 @@ function RouteComponent() {
               ) : (
                 tableItems.map((entry) => {
                   const hasAccountEntry = !!entry.accountEntryId;
+                  const noReceipt = entry.receiptsCount === 0;
                   return (
                     <tr
                       key={entry.id}
-                      className={`border-b border-border/30 last:border-0 transition-colors hover:bg-muted/20 ${hasAccountEntry ? "bg-emerald-500/5" : ""}`}
+                      className={cn(
+                        "border-b border-border/30 last:border-0 transition-colors hover:bg-muted/20",
+                        hasAccountEntry && "bg-emerald-500/5",
+                        noReceipt && "bg-red-500/5"
+                      )}
                     >
                       <td className="px-5 py-4 text-muted-foreground">
                         {new Date(entry.date).toLocaleDateString()}
@@ -881,7 +910,7 @@ function RouteComponent() {
                       </td>
                       <td className="px-5 py-4">
                         {entry.receiptsCount === 0 ? (
-                          <span className="inline-flex items-center rounded-full bg-red-500/15 px-3 py-1.5 text-base font-bold uppercase tracking-wide text-red-600 dark:text-red-400">
+                          <span className="inline-flex items-center rounded-full bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-600 dark:text-red-400">
                             No receipt
                           </span>
                         ) : hasAccountEntry ? (

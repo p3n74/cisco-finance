@@ -5,7 +5,7 @@
  * Run from repo root: bun run --cwd cisco-finance/packages/db seed-data
  * Or: cd cisco-finance/packages/db && bun run seed-data
  *
- * Requires DATABASE_URL. Loads .env from apps/server/.env or repo root so the
+ * Requires DATABASE_URL. Loads .env from apps/server/.env before Prisma so the
  * same credentials as the webapp are used. Uses existing User if any; otherwise creates a seed user.
  */
 
@@ -14,11 +14,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// Load .env so DATABASE_URL is set before Prisma connects (same as webapp: apps/server/.env or repo root)
+// Load apps/server/.env FIRST so DATABASE_URL is in process.env before @cisco-finance/env (and Prisma) load.
 config({ path: path.resolve(__dirname, "../../.env") });
 config({ path: path.resolve(__dirname, "../../apps/server/.env") });
 
-import { prisma } from "./src";
+const { prisma } = await import("./src");
 
 // 1x1 transparent PNG (smallest valid image placeholder)
 const PLACEHOLDER_IMAGE_BASE64 =
@@ -190,34 +190,41 @@ async function seedCashflowEntries(
   accountEntryIds: string[],
   count: number,
 ): Promise<string[]> {
+  // Every cashflow entry must link to an account entry (only verified account txns go to cashflow).
+  const linkCount = Math.min(count, accountEntryIds.length);
+  if (linkCount === 0) {
+    console.log("Skipped cashflow entries: no account entries to link");
+    return [];
+  }
+
+  const accountEntries = await prisma.accountEntry.findMany({
+    where: { id: { in: accountEntryIds } },
+    select: { id: true, date: true, amount: true, description: true, account: true },
+  });
+  const byId = new Map(accountEntries.map((e) => [e.id, e]));
+  const shuffled = [...accountEntryIds].sort(() => Math.random() - 0.5);
+
   const ids: string[] = [];
-  const linkedCount = Math.min(Math.floor(count * 0.6), accountEntryIds.length);
-  const usedAccountIds = new Set<string>();
-
-  for (let i = 0; i < count; i++) {
-    const date = daysAgo(randomInt(0, 60));
-    const amount = randomAmount(100, 12000, true);
-    const linkToAccount =
-      i < linkedCount && accountEntryIds.length > 0
-        ? pick(accountEntryIds.filter((id) => !usedAccountIds.has(id)))
-        : null;
-    if (linkToAccount) usedAccountIds.add(linkToAccount);
-
+  for (let i = 0; i < linkCount; i++) {
+    const accountId = shuffled[i];
+    const account = byId.get(accountId);
+    if (!account) continue;
+    const amount = Number(account.amount);
     const entry = await prisma.cashflowEntry.create({
       data: {
         userId,
-        date,
-        description: pick(ACCOUNT_DESCRIPTIONS),
+        date: account.date,
+        description: account.description,
         category: pick(CASHFLOW_CATEGORIES),
         amount,
         currency: CURRENCY,
         notes: Math.random() < 0.2 ? "Seed verified" : null,
-        accountEntryId: linkToAccount ?? undefined,
+        accountEntryId: accountId,
       },
     });
     ids.push(entry.id);
   }
-  console.log(`Created ${count} cashflow entries (${linkedCount} linked to account entries)`);
+  console.log(`Created ${linkCount} cashflow entries (each linked to an account entry)`);
   return ids;
 }
 
@@ -358,7 +365,11 @@ async function main() {
   const receiptCount = randomInt(25, 60);
   const projectCount = randomInt(4, 10);
 
-  const accountEntryIds = await seedAccountEntries(userId, accountCount);
+  // Cashflow entries must each link to an account entry (verified account txns only).
+  // Create more account entries than cashflow so some remain unlinked (pending verification) for testing.
+  const unlinkedExtra = randomInt(5, 20);
+  const accountCountForSeed = Math.max(accountCount, cashflowCount + unlinkedExtra);
+  const accountEntryIds = await seedAccountEntries(userId, accountCountForSeed);
   const cashflowEntryIds = await seedCashflowEntries(userId, accountEntryIds, cashflowCount);
   await seedReceiptSubmissions(cashflowEntryIds, receiptCount, userId);
 
