@@ -128,11 +128,42 @@ function RouteComponent() {
   const [viewingReceiptsEntryId, setViewingReceiptsEntryId] = useState<string | null>(null);
   const [viewingReceiptIndex, setViewingReceiptIndex] = useState<number>(0);
 
-  // PDF report dialog
+  // PDF report dialog and cooldown (5 min whole cashflow, 2 min if >100 items)
+  const PDF_COOLDOWN_KEY = "cisco-finance-pdf-cooldown-end";
   const [pdfDialogOpen, setPdfDialogOpen] = useState(false);
   const [pdfDateFrom, setPdfDateFrom] = useState("");
   const [pdfDateTo, setPdfDateTo] = useState("");
   const [pdfGenerating, setPdfGenerating] = useState(false);
+  const [pdfCooldownEnd, setPdfCooldownEnd] = useState<number | null>(() => {
+    if (typeof sessionStorage === "undefined") return null;
+    const stored = sessionStorage.getItem(PDF_COOLDOWN_KEY);
+    const end = stored ? Number(stored) : NaN;
+    return Number.isFinite(end) && end > Date.now() ? end : null;
+  });
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (pdfCooldownEnd == null) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [pdfCooldownEnd]);
+  useEffect(() => {
+    if (pdfCooldownEnd != null) {
+      sessionStorage.setItem(PDF_COOLDOWN_KEY, String(pdfCooldownEnd));
+    } else {
+      sessionStorage.removeItem(PDF_COOLDOWN_KEY);
+    }
+  }, [pdfCooldownEnd]);
+  useEffect(() => {
+    if (pdfCooldownEnd != null && now >= pdfCooldownEnd) setPdfCooldownEnd(null);
+  }, [pdfCooldownEnd, now]);
+  const pdfCooldownRemaining = pdfCooldownEnd != null && pdfCooldownEnd > now ? pdfCooldownEnd - now : 0;
+  const pdfCooldownMinutes = Math.floor(pdfCooldownRemaining / 60000);
+  const pdfCooldownSeconds = Math.floor((pdfCooldownRemaining % 60000) / 1000);
+  const pdfCooldownLabel =
+    pdfCooldownRemaining > 0
+      ? `${pdfCooldownMinutes}:${pdfCooldownSeconds.toString().padStart(2, "0")} cooldown`
+      : null;
+  const isPdfOnCooldown = pdfCooldownRemaining > 0;
 
   const receiptsQueryOptions = trpc.cashflowEntries.getReceipts.queryOptions(
     { id: viewingReceiptsEntryId ?? "" },
@@ -462,7 +493,7 @@ function RouteComponent() {
           )}
           <Button variant="outline" onClick={() => setPdfDialogOpen(true)} className="gap-2">
             <FileDown className="size-4" />
-            PDF Report
+            {isPdfOnCooldown ? `PDF Report (${pdfCooldownLabel})` : "PDF Report"}
           </Button>
         </div>
       </div>
@@ -1066,6 +1097,18 @@ function RouteComponent() {
             <p className="text-xs text-muted-foreground">
               Leave both empty for all dates.
             </p>
+            {!pdfDateFrom.trim() && !pdfDateTo.trim() && (
+              <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+                <p className="font-medium">Heavy use notice</p>
+                <p className="mt-1">
+                  Reporting all dates uses significant server and browser resources. A{" "}
+                  <strong>5-minute cooldown</strong> will apply before you can generate another report.
+                </p>
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Reports with over 100 entries trigger a 2-minute cooldown. The cooldown timer is shown on the Generate PDF button.
+            </p>
           </div>
           <DialogFooter className="mt-6">
             <DialogClose asChild>
@@ -1074,22 +1117,28 @@ function RouteComponent() {
               </Button>
             </DialogClose>
             <Button
-              disabled={pdfGenerating}
+              disabled={pdfGenerating || isPdfOnCooldown}
               onClick={async () => {
+                const noDateRange = !pdfDateFrom.trim() && !pdfDateTo.trim();
                 setPdfGenerating(true);
                 try {
                   const data = await queryClient.fetchQuery(
                     trpc.report.getReportData.queryOptions({
-                      dateFrom: pdfDateFrom || undefined,
-                      dateTo: pdfDateTo || undefined,
+                      dateFrom: pdfDateFrom.trim() || undefined,
+                      dateTo: pdfDateTo.trim() || undefined,
                       dateSort: "desc",
                     })
                   );
                   downloadPdfReport(data, {
-                    dateFrom: pdfDateFrom || undefined,
-                    dateTo: pdfDateTo || undefined,
+                    dateFrom: pdfDateFrom.trim() || undefined,
+                    dateTo: pdfDateTo.trim() || undefined,
                   });
                   setPdfDialogOpen(false);
+                  const entryCount = data.entries.length;
+                  let cooldownMs = 0;
+                  if (noDateRange) cooldownMs = 5 * 60 * 1000;
+                  else if (entryCount > 100) cooldownMs = 2 * 60 * 1000;
+                  if (cooldownMs > 0) setPdfCooldownEnd(Date.now() + cooldownMs);
                 } finally {
                   setPdfGenerating(false);
                 }
@@ -1100,6 +1149,8 @@ function RouteComponent() {
                   <Loader2 className="size-4 animate-spin" />
                   Generating…
                 </>
+              ) : isPdfOnCooldown ? (
+                `Generate PDF (${pdfCooldownLabel})`
               ) : (
                 "Generate PDF"
               )}
