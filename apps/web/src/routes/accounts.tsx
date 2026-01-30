@@ -81,7 +81,7 @@ function AccountsRoute() {
     }),
   );
 
-  const entries = entriesQuery.data ?? [];
+  const entries = entriesQuery.data?.items ?? [];
   const activeEntries = entries.filter((entry) => entry.isActive);
   const sortedEntries = [...entries].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),

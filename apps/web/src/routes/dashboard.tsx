@@ -178,7 +178,7 @@ function RouteComponent() {
     (e) => e.id === formState.accountEntryId
   );
 
-  const cashflowEntries = cashflowQuery.data ?? [];
+  const cashflowEntries = cashflowQuery.data?.items ?? [];
   const activeEntries = cashflowEntries.filter((entry) => entry.isActive);
   const sortedActiveEntries = [...activeEntries].sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),

@@ -118,8 +118,8 @@ function ReceiptsRoute() {
     })
   );
 
-  const submissions = submissionsQuery.data ?? [];
-  const cashflowEntries = cashflowQuery.data?.filter((e) => e.isActive) ?? [];
+  const submissions = submissionsQuery.data?.items ?? [];
+  const cashflowEntries = cashflowQuery.data?.items?.filter((e) => e.isActive) ?? [];
 
   const filteredSubmissions = submissions.filter((s) => {
     // Filter by binding status

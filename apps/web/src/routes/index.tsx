@@ -46,7 +46,7 @@ function SignedInHome() {
 
   const stats = statsQuery.data;
   const budgetOverview = budgetOverviewQuery.data;
-  const activities = activityQuery.data ?? [];
+  const activities = activityQuery.data?.items ?? [];
 
   const netCashflow = stats?.netCashflow ?? 0;
   const projectedCashflow = netCashflow - (budgetOverview?.totalBudget ?? 0);

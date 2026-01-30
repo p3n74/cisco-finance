@@ -11,9 +11,11 @@
   },
   "dependencies": {
     "@cisco-finance/env": "workspace:*",
+    "@prisma/adapter-pg": "^7.3.0",
     "@prisma/client": "catalog:",
     "@prisma/extension-accelerate": "^3.0.1",
     "dotenv": "catalog:",
+    "pg": "^8.13.0",
     "prisma": "^7.2.0",
     "zod": "catalog:"
   },
@@ -26,6 +28,7 @@
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "seed-data": "bun run ./seed-data.ts"
   }
 }

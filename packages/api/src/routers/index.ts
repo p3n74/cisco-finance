@@ -79,28 +79,37 @@ export const appRouter = router({
       .input(
         z.object({
           limit: z.number().min(1).max(100).optional().default(50),
+          cursor: z.string().optional(),
         }).optional()
       )
       .query(async ({ ctx, input }) => {
+        const limit = input?.limit ?? 50;
+        const cursor = input?.cursor;
         const logs = await ctx.prisma.activityLog.findMany({
-          take: input?.limit ?? 50,
-          orderBy: { createdAt: "desc" },
+          take: limit + 1,
+          ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
           include: {
             user: {
               select: { id: true, name: true, image: true },
             },
           },
         });
-        return logs.map((log) => ({
-          id: log.id,
-          action: log.action,
-          entityType: log.entityType,
-          entityId: log.entityId,
-          description: log.description,
-          metadata: log.metadata ? JSON.parse(log.metadata) : null,
-          createdAt: log.createdAt,
-          user: log.user,
-        }));
+        const nextCursor = logs.length > limit ? logs[limit - 1].id : null;
+        const items = logs.slice(0, limit);
+        return {
+          items: items.map((log) => ({
+            id: log.id,
+            action: log.action,
+            entityType: log.entityType,
+            entityId: log.entityId,
+            description: log.description,
+            metadata: log.metadata ? JSON.parse(log.metadata) : null,
+            createdAt: log.createdAt,
+            user: log.user,
+          })),
+          nextCursor,
+        };
       }),
   }),
 
@@ -301,54 +310,70 @@ export const appRouter = router({
 
         return { id: submission.id, message: "Receipt submitted successfully" };
       }),
-    // Admin: list all submissions
-    list: protectedProcedure.query(async ({ ctx }) => {
-      const submissions = await ctx.prisma.receiptSubmission.findMany({
-        orderBy: { createdAt: "desc" },
-        select: {
-          id: true,
-          submitterName: true,
-          purpose: true,
-          imageType: true,
-          notes: true,
-          // Reimbursement fields
-          needsReimbursement: true,
-          reimbursementMethod: true,
-          accountType: true,
-          accountNumber: true,
-          accountName: true,
-          contactInfo: true,
-          contactType: true,
-          // Binding fields
-          cashflowEntryId: true,
-          boundAt: true,
-          boundBy: true,
-          endorsedAt: true,
-          endorsedBy: true,
-          reimbursedAt: true,
-          reimbursedBy: true,
-          createdAt: true,
-          cashflowEntry: {
-            select: {
-              id: true,
-              description: true,
-              amount: true,
-              date: true,
+    // Admin: list all submissions (paginated)
+    list: protectedProcedure
+      .input(
+        z.object({
+          limit: z.number().min(1).max(100).optional().default(50),
+          cursor: z.string().optional(),
+        }).optional()
+      )
+      .query(async ({ ctx, input }) => {
+        const limit = input?.limit ?? 50;
+        const cursor = input?.cursor;
+        const submissions = await ctx.prisma.receiptSubmission.findMany({
+          take: limit + 1,
+          ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+          select: {
+            id: true,
+            submitterName: true,
+            purpose: true,
+            imageType: true,
+            notes: true,
+            // Reimbursement fields
+            needsReimbursement: true,
+            reimbursementMethod: true,
+            accountType: true,
+            accountNumber: true,
+            accountName: true,
+            contactInfo: true,
+            contactType: true,
+            // Binding fields
+            cashflowEntryId: true,
+            boundAt: true,
+            boundBy: true,
+            endorsedAt: true,
+            endorsedBy: true,
+            reimbursedAt: true,
+            reimbursedBy: true,
+            createdAt: true,
+            cashflowEntry: {
+              select: {
+                id: true,
+                description: true,
+                amount: true,
+                date: true,
+              },
             },
           },
-        },
-      });
-      return submissions.map((s) => ({
-        ...s,
-        isBound: !!s.cashflowEntryId,
-        cashflowEntry: s.cashflowEntry
-          ? {
-              ...s.cashflowEntry,
-              amount: Number(s.cashflowEntry.amount),
-            }
-          : null,
-      }));
-    }),
+        });
+        const nextCursor = submissions.length > limit ? submissions[limit - 1].id : null;
+        const items = submissions.slice(0, limit);
+        return {
+          items: items.map((s) => ({
+            ...s,
+            isBound: !!s.cashflowEntryId,
+            cashflowEntry: s.cashflowEntry
+              ? {
+                  ...s.cashflowEntry,
+                  amount: Number(s.cashflowEntry.amount),
+                }
+              : null,
+          })),
+          nextCursor,
+        };
+      }),
     // Admin: get single submission with image
     getById: protectedProcedure
       .input(z.object({ id: z.string() }))
@@ -804,32 +829,45 @@ export const appRouter = router({
 
   // Account entries (treasury ledger)
   accountEntries: router({
-    list: protectedProcedure.query(async ({ ctx }) => {
-      const entries = await ctx.prisma.accountEntry.findMany({
-        orderBy: {
-          date: "desc",
-        },
-        include: {
-          cashflowEntry: {
-            select: { id: true, description: true },
+    list: protectedProcedure
+      .input(
+        z.object({
+          limit: z.number().min(1).max(100).optional().default(50),
+          cursor: z.string().optional(),
+        }).optional()
+      )
+      .query(async ({ ctx, input }) => {
+        const limit = input?.limit ?? 50;
+        const cursor = input?.cursor;
+        const entries = await ctx.prisma.accountEntry.findMany({
+          take: limit + 1,
+          ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+          orderBy: [{ date: "desc" }, { id: "desc" }],
+          include: {
+            cashflowEntry: {
+              select: { id: true, description: true },
+            },
           },
-        },
-      });
-
-      return entries.map((entry) => ({
-        id: entry.id,
-        date: entry.date,
-        description: entry.description,
-        account: entry.account,
-        amount: Number(entry.amount),
-        currency: entry.currency,
-        notes: entry.notes,
-        isActive: entry.isActive,
-        archivedAt: entry.archivedAt,
-        isVerified: !!entry.cashflowEntry,
-        cashflowEntry: entry.cashflowEntry,
-      }));
-    }),
+        });
+        const nextCursor = entries.length > limit ? entries[limit - 1].id : null;
+        const items = entries.slice(0, limit);
+        return {
+          items: items.map((entry) => ({
+            id: entry.id,
+            date: entry.date,
+            description: entry.description,
+            account: entry.account,
+            amount: Number(entry.amount),
+            currency: entry.currency,
+            notes: entry.notes,
+            isActive: entry.isActive,
+            archivedAt: entry.archivedAt,
+            isVerified: !!entry.cashflowEntry,
+            cashflowEntry: entry.cashflowEntry,
+          })),
+          nextCursor,
+        };
+      }),
     listUnverified: protectedProcedure.query(async ({ ctx }) => {
       const entries = await ctx.prisma.accountEntry.findMany({
         where: {
@@ -988,92 +1026,108 @@ export const appRouter = router({
 
   // Budget Planning
   budgetProjects: router({
-    // List all projects for user
-    list: protectedProcedure.query(async ({ ctx }) => {
-      const projects = await ctx.prisma.budgetProject.findMany({
-        where: {
-          isActive: true,
-        },
-        orderBy: [
-          { status: "asc" }, // planned first, then completed
-          { eventDate: "asc" },
-          { createdAt: "desc" },
-        ],
-        include: {
-          items: {
-            where: { isActive: true },
-            include: {
-              expenses: {
-                include: {
-                  cashflowEntry: {
-                    select: {
-                      id: true,
-                      amount: true,
-                      description: true,
-                      date: true,
+    // List all projects for user (paginated)
+    list: protectedProcedure
+      .input(
+        z.object({
+          limit: z.number().min(1).max(50).optional().default(20),
+          cursor: z.string().optional(),
+        }).optional()
+      )
+      .query(async ({ ctx, input }) => {
+        const limit = input?.limit ?? 20;
+        const cursor = input?.cursor;
+        const projects = await ctx.prisma.budgetProject.findMany({
+          take: limit + 1,
+          ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+          where: {
+            isActive: true,
+          },
+          orderBy: [
+            { status: "asc" }, // planned first, then completed
+            { eventDate: "asc" },
+            { createdAt: "desc" },
+            { id: "desc" },
+          ],
+          include: {
+            items: {
+              where: { isActive: true },
+              include: {
+                expenses: {
+                  include: {
+                    cashflowEntry: {
+                      select: {
+                        id: true,
+                        amount: true,
+                        description: true,
+                        date: true,
+                      },
                     },
                   },
                 },
               },
             },
           },
-        },
-      });
-
-      return projects.map((project) => {
-        const totalBudget = project.items.reduce(
-          (sum, item) => sum + Number(item.estimatedAmount),
-          0
-        );
-        const totalActual = project.items.reduce(
-          (sum, item) =>
-            sum +
-            item.expenses.reduce(
-              (expSum, exp) => expSum + Math.abs(Number(exp.cashflowEntry.amount)),
-              0
-            ),
-          0
-        );
-
+        });
+        const nextCursor = projects.length > limit ? projects[limit - 1].id : null;
+        const items = projects.slice(0, limit);
         return {
-          id: project.id,
-          name: project.name,
-          description: project.description,
-          category: project.category,
-          eventDate: project.eventDate,
-          status: project.status,
-          isActive: project.isActive,
-          createdAt: project.createdAt,
-          updatedAt: project.updatedAt,
-          totalBudget,
-          totalActual,
-          itemCount: project.items.length,
-          items: project.items.map((item) => ({
-            id: item.id,
-            name: item.name,
-            description: item.description,
-            estimatedAmount: Number(item.estimatedAmount),
-            notes: item.notes,
-            isActive: item.isActive,
-            createdAt: item.createdAt,
-            actualAmount: item.expenses.reduce(
-              (sum, exp) => sum + Math.abs(Number(exp.cashflowEntry.amount)),
+          items: items.map((project) => {
+            const totalBudget = project.items.reduce(
+              (sum, item) => sum + Number(item.estimatedAmount),
               0
-            ),
-            expenseCount: item.expenses.length,
-            expenses: item.expenses.map((exp) => ({
-              id: exp.id,
-              cashflowEntryId: exp.cashflowEntryId,
-              cashflowEntry: {
-                ...exp.cashflowEntry,
-                amount: Number(exp.cashflowEntry.amount),
-              },
-              createdAt: exp.createdAt,
-            })),
-          })),
+            );
+            const totalActual = project.items.reduce(
+              (sum, item) =>
+                sum +
+                item.expenses.reduce(
+                  (expSum, exp) => expSum + Math.abs(Number(exp.cashflowEntry.amount)),
+                  0
+                ),
+              0
+            );
+
+            return {
+              id: project.id,
+              name: project.name,
+              description: project.description,
+              category: project.category,
+              eventDate: project.eventDate,
+              status: project.status,
+              isActive: project.isActive,
+              createdAt: project.createdAt,
+              updatedAt: project.updatedAt,
+              totalBudget,
+              totalActual,
+              itemCount: project.items.length,
+              items: project.items.map((item) => ({
+                id: item.id,
+                name: item.name,
+                description: item.description,
+                estimatedAmount: Number(item.estimatedAmount),
+                notes: item.notes,
+                isActive: item.isActive,
+                createdAt: item.createdAt,
+                actualAmount: item.expenses.reduce(
+                  (sum, exp) => sum + Math.abs(Number(exp.cashflowEntry.amount)),
+                  0
+                ),
+                expenseCount: item.expenses.length,
+                expenses: item.expenses.map((exp) => ({
+                  id: exp.id,
+                  cashflowEntryId: exp.cashflowEntryId,
+                  cashflowEntry: {
+                    ...exp.cashflowEntry,
+                    amount: Number(exp.cashflowEntry.amount),
+                  },
+                  createdAt: exp.createdAt,
+                })),
+              })),
+            };
+          }),
+          nextCursor,
         };
-      });
-    }),
+      }),
 
     // Get single project by ID
     getById: protectedProcedure
@@ -1590,39 +1644,52 @@ export const appRouter = router({
 
   // Cashflow entries (verified official transactions)
   cashflowEntries: router({
-    list: protectedProcedure.query(async ({ ctx }) => {
-      const entries = await ctx.prisma.cashflowEntry.findMany({
-        orderBy: {
-          date: "desc",
-        },
-        include: {
-          receipts: {
-            select: { id: true },
+    list: protectedProcedure
+      .input(
+        z.object({
+          limit: z.number().min(1).max(100).optional().default(50),
+          cursor: z.string().optional(),
+        }).optional()
+      )
+      .query(async ({ ctx, input }) => {
+        const limit = input?.limit ?? 50;
+        const cursor = input?.cursor;
+        const entries = await ctx.prisma.cashflowEntry.findMany({
+          take: limit + 1,
+          ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+          orderBy: [{ date: "desc" }, { id: "desc" }],
+          include: {
+            receipts: {
+              select: { id: true },
+            },
+            receiptSubmissions: {
+              select: { id: true },
+            },
+            accountEntry: {
+              select: { id: true, description: true, account: true },
+            },
           },
-          receiptSubmissions: {
-            select: { id: true },
-          },
-          accountEntry: {
-            select: { id: true, description: true, account: true },
-          },
-        },
-      });
-
-      return entries.map((entry) => ({
-        id: entry.id,
-        date: entry.date,
-        description: entry.description,
-        category: entry.category,
-        amount: Number(entry.amount),
-        currency: entry.currency,
-        notes: entry.notes,
-        isActive: entry.isActive,
-        archivedAt: entry.archivedAt,
-        receiptsCount: entry.receipts.length + entry.receiptSubmissions.length,
-        accountEntryId: entry.accountEntryId,
-        accountEntry: entry.accountEntry,
-      }));
-    }),
+        });
+        const nextCursor = entries.length > limit ? entries[limit - 1].id : null;
+        const items = entries.slice(0, limit);
+        return {
+          items: items.map((entry) => ({
+            id: entry.id,
+            date: entry.date,
+            description: entry.description,
+            category: entry.category,
+            amount: Number(entry.amount),
+            currency: entry.currency,
+            notes: entry.notes,
+            isActive: entry.isActive,
+            archivedAt: entry.archivedAt,
+            receiptsCount: entry.receipts.length + entry.receiptSubmissions.length,
+            accountEntryId: entry.accountEntryId,
+            accountEntry: entry.accountEntry,
+          })),
+          nextCursor,
+        };
+      }),
     // Get receipts for a specific cashflow entry
     getReceipts: protectedProcedure
       .input(z.object({ id: z.string() }))

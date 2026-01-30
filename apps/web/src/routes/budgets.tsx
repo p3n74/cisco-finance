@@ -72,7 +72,7 @@ function BudgetsRoute() {
   // Queries
   const projectsQueryOptions = trpc.budgetProjects.list.queryOptions();
   const projectsQuery = useQuery(projectsQueryOptions);
-  const projects = projectsQuery.data ?? [];
+  const projects = projectsQuery.data?.items ?? [];
 
   // State for dialogs
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
