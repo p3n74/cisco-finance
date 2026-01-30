@@ -68,6 +68,10 @@ cisco-finance/
 │   └── db/          # Database schema & queries
 ```
 
+## Role-Based Access
+
+Who can edit vs view on each page (Dashboard, Submitted Receipts, Budgets) is controlled by user roles. See **[docs/ROLES.md](./docs/ROLES.md)** for the full matrix (VP Finance, Auditor, Treasurer, Ways and Means, regular users).
+
 ## Production (PM2 on DCISM)
 
 For production on the DCISM server (port 20172), see **[DEPLOY.md](./DEPLOY.md)** for PM2 setup, start/restart commands, and persistence (`pm2 save`).

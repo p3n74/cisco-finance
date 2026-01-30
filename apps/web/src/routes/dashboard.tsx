@@ -37,7 +37,13 @@ export const Route = createFileRoute("/dashboard")({
 function RouteComponent() {
   const { session } = Route.useRouteContext();
   const navigate = useNavigate();
-  
+
+  // Only VP Finance and Auditor can verify transactions, attach/unbind receipts on dashboard
+  const roleQueryOptions = trpc.team.getMyRole.queryOptions();
+  const roleQuery = useQuery(roleQueryOptions);
+  const canEditDashboard =
+    roleQuery.data?.role === "VP_FINANCE" || roleQuery.data?.role === "AUDITOR";
+
   const cashflowQueryOptions = trpc.cashflowEntries.list.queryOptions();
   const cashflowQuery = useQuery(cashflowQueryOptions);
   
@@ -219,7 +225,9 @@ function RouteComponent() {
           <p className="text-xs font-medium uppercase tracking-widest text-primary">Dashboard</p>
           <h1 className="text-3xl font-bold tracking-tight">Finance Overview</h1>
           <p className="text-muted-foreground">
-            Welcome back, {session.data?.user?.name ?? "User"}
+            {canEditDashboard
+              ? `Welcome back, ${session.data?.user?.name ?? "User"}`
+              : "View-only. Only VP Finance and Auditor can verify transactions and attach receipts."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -235,6 +243,7 @@ function RouteComponent() {
               </span>
             )}
           </Button>
+          {canEditDashboard && (
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <Button variant="default" onClick={() => setIsDialogOpen(true)}>
               Verify Transaction
@@ -375,6 +384,7 @@ function RouteComponent() {
               </form>
             </DialogPopup>
           </Dialog>
+          )}
           <Button variant="outline" disabled>
             Export
           </Button>
@@ -631,13 +641,15 @@ function RouteComponent() {
                               View
                             </Button>
                           )}
-                          <Button 
-                            size="xs" 
-                            variant="ghost"
-                            onClick={() => setAttachingToEntryId(entry.id)}
-                          >
-                            Attach
-                          </Button>
+                          {canEditDashboard && (
+                            <Button 
+                              size="xs" 
+                              variant="ghost"
+                              onClick={() => setAttachingToEntryId(entry.id)}
+                            >
+                              Attach
+                            </Button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -737,17 +749,19 @@ function RouteComponent() {
                     </div>
                   </div>
 
-                  {/* Unbind Button */}
-                  <div className="pt-4 border-t">
-                    <Button
-                      variant="outline"
-                      className="text-amber-600 hover:text-amber-700"
-                      onClick={() => unbindMutation.mutate({ id: currentReceipt.id })}
-                      disabled={unbindMutation.isPending}
-                    >
-                      {unbindMutation.isPending ? "Unbinding..." : "Unbind This Receipt"}
-                    </Button>
-                  </div>
+                  {/* Unbind Button — only VP / Auditor */}
+                  {canEditDashboard && (
+                    <div className="pt-4 border-t">
+                      <Button
+                        variant="outline"
+                        className="text-amber-600 hover:text-amber-700"
+                        onClick={() => unbindMutation.mutate({ id: currentReceipt.id })}
+                        disabled={unbindMutation.isPending}
+                      >
+                        {unbindMutation.isPending ? "Unbinding..." : "Unbind This Receipt"}
+                      </Button>
+                    </div>
+                  )}
                 </>
               )}
             </div>
@@ -757,12 +771,14 @@ function RouteComponent() {
             <DialogClose asChild>
               <Button variant="outline">Close</Button>
             </DialogClose>
-            <Button onClick={() => {
-              setViewingReceiptsEntryId(null);
-              setAttachingToEntryId(viewingEntry?.id ?? null);
-            }}>
-              Attach More
-            </Button>
+            {canEditDashboard && (
+              <Button onClick={() => {
+                setViewingReceiptsEntryId(null);
+                setAttachingToEntryId(viewingEntry?.id ?? null);
+              }}>
+                Attach More
+              </Button>
+            )}
           </DialogFooter>
         </DialogPopup>
       </Dialog>

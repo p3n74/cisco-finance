@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { protectedProcedure, publicProcedure, router } from "../index";
+import { budgetEditorProcedure, cashflowEditorProcedure, protectedProcedure, publicProcedure, receiptEditorProcedure, router } from "../index";
 import { WS_EVENTS, type WsEmitter, type Context } from "../context";
 import { teamRouter } from "./team";
 import { sendEmail } from "../services/email";
@@ -379,7 +379,7 @@ export const appRouter = router({
         };
       }),
     // Bind receipt to a cashflow entry
-    bind: protectedProcedure
+    bind: receiptEditorProcedure
       .input(
         z.object({
           id: z.string(),
@@ -431,7 +431,7 @@ export const appRouter = router({
         return result;
       }),
     // Unbind receipt from cashflow entry
-    unbind: protectedProcedure
+    unbind: receiptEditorProcedure
       .input(z.object({ id: z.string() }))
       .mutation(async ({ ctx, input }) => {
         const receipt = await ctx.prisma.receiptSubmission.findUnique({
@@ -503,7 +503,7 @@ export const appRouter = router({
       return submissions;
     }),
     // Submit and bind in one operation (for direct upload from transaction)
-    submitAndBind: protectedProcedure
+    submitAndBind: receiptEditorProcedure
       .input(
         z.object({
           submitterName: z.string().min(2, "Name must be at least 2 characters"),
@@ -562,14 +562,14 @@ export const appRouter = router({
         return { id: submission.id, message: "Receipt uploaded and bound successfully" };
       }),
     // Endorse for reimbursement (notify treasurer)
-    endorse: protectedProcedure
+    endorse: receiptEditorProcedure
       .input(z.object({ 
         id: z.string(),
         message: z.string().optional()
       }))
       .mutation(async ({ ctx, input }) => {
-        if (ctx.userRole !== "AUDITOR") {
-          throw new Error("Only the Auditor can endorse receipts for reimbursement.");
+        if (ctx.userRole !== "AUDITOR" && ctx.userRole !== "VP_FINANCE") {
+          throw new Error("Only the Auditor or VP Finance can endorse receipts for reimbursement.");
         }
 
         const submission = await ctx.prisma.receiptSubmission.findUnique({
@@ -703,8 +703,8 @@ export const appRouter = router({
 
         return { success: true, message: "Endorsement sent to treasurer" };
       }),
-    // Mark receipt as reimbursed (Treasurer only)
-    markAsReimbursed: protectedProcedure
+    // Mark receipt as reimbursed (Treasurer only) — receiptEditorProcedure gates access; Treasurer check is inside
+    markAsReimbursed: receiptEditorProcedure
       .input(z.object({ id: z.string() }))
       .mutation(async ({ ctx, input }) => {
         if (ctx.userRole !== "TREASURER") {
@@ -1163,7 +1163,7 @@ export const appRouter = router({
       }),
 
     // Create new project
-    create: protectedProcedure
+    create: budgetEditorProcedure
       .input(
         z.object({
           name: z.string().min(2, "Name must be at least 2 characters"),
@@ -1203,7 +1203,7 @@ export const appRouter = router({
       }),
 
     // Update project
-    update: protectedProcedure
+    update: budgetEditorProcedure
       .input(
         z.object({
           id: z.string(),
@@ -1242,7 +1242,7 @@ export const appRouter = router({
       }),
 
     // Archive project
-    archive: protectedProcedure
+    archive: budgetEditorProcedure
       .input(z.object({ id: z.string() }))
       .mutation(async ({ ctx, input }) => {
         const project = await ctx.prisma.budgetProject.findFirst({
@@ -1348,7 +1348,7 @@ export const appRouter = router({
   // Budget Items
   budgetItems: router({
     // Create new item in a project
-    create: protectedProcedure
+    create: budgetEditorProcedure
       .input(
         z.object({
           budgetProjectId: z.string(),
@@ -1395,7 +1395,7 @@ export const appRouter = router({
       }),
 
     // Update item
-    update: protectedProcedure
+    update: budgetEditorProcedure
       .input(
         z.object({
           id: z.string(),
@@ -1423,7 +1423,7 @@ export const appRouter = router({
       }),
 
     // Delete item (only if no linked expenses)
-    delete: protectedProcedure
+    delete: budgetEditorProcedure
       .input(z.object({ id: z.string() }))
       .mutation(async ({ ctx, input }) => {
         // Verify item exists
@@ -1464,7 +1464,7 @@ export const appRouter = router({
       }),
 
     // Link cashflow entry to budget item
-    linkExpense: protectedProcedure
+    linkExpense: budgetEditorProcedure
       .input(
         z.object({
           budgetItemId: z.string(),
@@ -1517,7 +1517,7 @@ export const appRouter = router({
       }),
 
     // Unlink expense from budget item
-    unlinkExpense: protectedProcedure
+    unlinkExpense: budgetEditorProcedure
       .input(z.object({ id: z.string() }))
       .mutation(async ({ ctx, input }) => {
         // Verify expense exists
@@ -1647,7 +1647,7 @@ export const appRouter = router({
         });
         return entry?.receiptSubmissions ?? [];
       }),
-    create: protectedProcedure
+    create: cashflowEditorProcedure
       .input(
         z.object({
           date: z.coerce.date(),
@@ -1705,7 +1705,7 @@ export const appRouter = router({
 
         return entry;
       }),
-    archive: protectedProcedure
+    archive: cashflowEditorProcedure
       .input(z.object({ id: z.string().min(1) }))
       .mutation(async ({ ctx, input }) => {
         const entry = await ctx.prisma.cashflowEntry.findUnique({

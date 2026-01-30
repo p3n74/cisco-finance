@@ -66,6 +66,9 @@ function ReceiptsRoute() {
   const roleQueryOptions = trpc.team.getMyRole.queryOptions();
   const roleQuery = useQuery(roleQueryOptions);
   const userRole = roleQuery.data?.role;
+  // VP Finance, Auditor, Treasurer can bind/endorse/mark reimbursed; Ways and Means and regular users view only
+  const canEditReceipts =
+    userRole === "VP_FINANCE" || userRole === "AUDITOR" || userRole === "TREASURER";
 
   const bindMutation = useMutation(
     trpc.receiptSubmission.bind.mutationOptions({
@@ -145,7 +148,9 @@ function ReceiptsRoute() {
           <p className="text-xs font-medium uppercase tracking-widest text-primary">Receipts</p>
           <h1 className="text-3xl font-bold tracking-tight">Submitted Receipts</h1>
           <p className="text-muted-foreground">
-            Review and bind receipt submissions to cashflow transactions
+            {canEditReceipts
+              ? "Review and bind receipt submissions to cashflow transactions"
+              : "View-only. Only VP Finance, Auditor, and Treasurer can bind, endorse, or mark reimbursed."}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap text-xs font-medium">
@@ -291,26 +296,27 @@ function ReceiptsRoute() {
                           >
                             View
                           </Button>
-                          {submission.isBound ? (
-                            <Button
-                              size="xs"
-                              variant="outline"
-                              className="text-amber-600 hover:text-amber-700"
-                              onClick={() => unbindMutation.mutate({ id: submission.id })}
-                              disabled={unbindMutation.isPending}
-                            >
-                              Unbind
-                            </Button>
-                          ) : (
-                            <Button
-                              size="xs"
-                              variant="outline"
-                              className="text-emerald-600 hover:text-emerald-700"
-                              onClick={() => setBindingId(submission.id)}
-                            >
-                              Bind
-                            </Button>
-                          )}
+                          {canEditReceipts &&
+                            (submission.isBound ? (
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                className="text-amber-600 hover:text-amber-700"
+                                onClick={() => unbindMutation.mutate({ id: submission.id })}
+                                disabled={unbindMutation.isPending}
+                              >
+                                Unbind
+                              </Button>
+                            ) : (
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                className="text-emerald-600 hover:text-emerald-700"
+                                onClick={() => setBindingId(submission.id)}
+                              >
+                                Bind
+                              </Button>
+                            ))}
                         </div>
                       </td>
                     </tr>
@@ -558,7 +564,7 @@ function ReceiptsRoute() {
                   />
                 </div>
               </div>
-              {!viewQuery.data.isBound && (
+              {canEditReceipts && !viewQuery.data.isBound && (
                 <div className="flex gap-2 pt-4 border-t">
                   <Button
                     className="flex-1"
@@ -571,7 +577,7 @@ function ReceiptsRoute() {
                   </Button>
                 </div>
               )}
-              {viewQuery.data.isBound && (
+              {canEditReceipts && viewQuery.data.isBound && (
                 <div className="flex gap-2 pt-4 border-t">
                   <Button
                     className="flex-1"
@@ -589,11 +595,11 @@ function ReceiptsRoute() {
                 </div>
               )}
               
-              {/* Endorsement and Reimbursement Buttons */}
-              {viewQuery.data.needsReimbursement && !viewQuery.data.reimbursedAt && (
+              {/* Endorsement and Reimbursement — only for VP / Auditor / Treasurer */}
+              {canEditReceipts && viewQuery.data.needsReimbursement && !viewQuery.data.reimbursedAt && (
                 <div className="flex gap-2 pt-4 border-t">
                   {!viewQuery.data.endorsedAt ? (
-                    userRole === "AUDITOR" && (
+                    (userRole === "AUDITOR" || userRole === "VP_FINANCE") && (
                       <Button
                         className="flex-1 bg-green-600 hover:bg-green-700 text-white"
                         onClick={() => setEndorsingId(viewQuery.data!.id)}

@@ -59,8 +59,15 @@ const getBudgetStatus = (estimated: number, actual: number) => {
   return { color: "text-rose-600", bg: "bg-rose-500", label: "Over budget" };
 };
 
+const BUDGET_EDITOR_ROLES = ["VP_FINANCE", "TREASURER", "AUDITOR", "WAYS_AND_MEANS"] as const;
+
 function BudgetsRoute() {
   const { session } = Route.useRouteContext();
+
+  // Role: only VP Finance, Treasurer, Auditor, Ways and Means can edit; others view only
+  const myRoleQueryOptions = trpc.team.getMyRole.queryOptions();
+  const myRoleQuery = useQuery(myRoleQueryOptions);
+  const canEditBudgets = (myRoleQuery.data?.role && (BUDGET_EDITOR_ROLES as readonly string[]).includes(myRoleQuery.data.role)) ?? false;
 
   // Queries
   const projectsQueryOptions = trpc.budgetProjects.list.queryOptions();
@@ -234,12 +241,16 @@ function BudgetsRoute() {
           <p className="text-xs font-medium uppercase tracking-widest text-primary">Planning</p>
           <h1 className="text-3xl font-bold tracking-tight">Budget Planning</h1>
           <p className="text-muted-foreground">
-            Plan budgets for upcoming events and track actual spending
+            {canEditBudgets
+              ? "Plan budgets for upcoming events and track actual spending"
+              : "View-only. Only VP Finance, Treasurer, Auditor, and Ways and Means can edit."}
           </p>
         </div>
-        <Button onClick={() => setIsCreateProjectOpen(true)}>
-          New Project
-        </Button>
+        {canEditBudgets && (
+          <Button onClick={() => setIsCreateProjectOpen(true)}>
+            New Project
+          </Button>
+        )}
       </div>
 
       {/* Stats Overview */}
@@ -304,10 +315,16 @@ function BudgetsRoute() {
           <Card>
             <CardContent className="py-12 text-center">
               <p className="text-muted-foreground">No budget projects yet.</p>
-              <p className="text-sm text-muted-foreground">Create your first project to start planning.</p>
-              <Button className="mt-4" onClick={() => setIsCreateProjectOpen(true)}>
-                Create Project
-              </Button>
+              {canEditBudgets ? (
+                <>
+                  <p className="text-sm text-muted-foreground">Create your first project to start planning.</p>
+                  <Button className="mt-4" onClick={() => setIsCreateProjectOpen(true)}>
+                    Create Project
+                  </Button>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">You can view budgets once they are created.</p>
+              )}
             </CardContent>
           </Card>
         ) : (
@@ -362,37 +379,39 @@ function BudgetsRoute() {
 
                 {isExpanded && (
                   <CardContent className="border-t pt-4">
-                    {/* Project Actions */}
-                    <div className="mb-4 flex flex-wrap gap-2">
-                      <Button size="sm" variant="outline" onClick={() => openAddItemDialog(project.id)}>
-                        Add Item
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => openEditProjectDialog(project)}>
-                        Edit Project
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => toggleProjectStatus.mutate({
-                          id: project.id,
-                          status: project.status === "completed" ? "planned" : "completed",
-                        })}
-                      >
-                        Mark as {project.status === "completed" ? "Planned" : "Completed"}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="text-rose-600 hover:text-rose-700"
-                        onClick={() => {
-                          if (confirm("Are you sure you want to archive this project?")) {
-                            archiveProject.mutate({ id: project.id });
-                          }
-                        }}
-                      >
-                        Archive
-                      </Button>
-                    </div>
+                    {/* Project Actions — only for VP Finance, Treasurer, Auditor, Ways and Means */}
+                    {canEditBudgets && (
+                      <div className="mb-4 flex flex-wrap gap-2">
+                        <Button size="sm" variant="outline" onClick={() => openAddItemDialog(project.id)}>
+                          Add Item
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => openEditProjectDialog(project)}>
+                          Edit Project
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => toggleProjectStatus.mutate({
+                            id: project.id,
+                            status: project.status === "completed" ? "planned" : "completed",
+                          })}
+                        >
+                          Mark as {project.status === "completed" ? "Planned" : "Completed"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-rose-600 hover:text-rose-700"
+                          onClick={() => {
+                            if (confirm("Are you sure you want to archive this project?")) {
+                              archiveProject.mutate({ id: project.id });
+                            }
+                          }}
+                        >
+                          Archive
+                        </Button>
+                      </div>
+                    )}
 
                     {/* Budget Items Table */}
                     {project.items.length === 0 ? (
@@ -409,7 +428,7 @@ function BudgetsRoute() {
                               <th className="px-4 py-2 text-right font-medium">Actual</th>
                               <th className="px-4 py-2 text-right font-medium">Variance</th>
                               <th className="px-4 py-2 text-left font-medium">Status</th>
-                              <th className="px-4 py-2 text-right font-medium">Actions</th>
+                              {canEditBudgets && <th className="px-4 py-2 text-right font-medium">Actions</th>}
                             </tr>
                           </thead>
                           <tbody>
@@ -436,6 +455,7 @@ function BudgetsRoute() {
                                             <span className="font-medium text-rose-500">
                                               {formatCurrency(Math.abs(exp.cashflowEntry.amount))}
                                             </span>
+                                            {canEditBudgets && (
                                             <button
                                               type="button"
                                               className="text-rose-500 hover:text-rose-700"
@@ -443,6 +463,7 @@ function BudgetsRoute() {
                                             >
                                               ✕
                                             </button>
+                                            )}
                                           </div>
                                         ))}
                                       </div>
@@ -460,32 +481,34 @@ function BudgetsRoute() {
                                   <td className="px-4 py-3">
                                     <span className={`text-xs ${itemStatus.color}`}>{itemStatus.label}</span>
                                   </td>
-                                  <td className="px-4 py-3 text-right">
-                                    <div className="flex justify-end gap-1">
-                                      <Button size="xs" variant="ghost" onClick={() => openLinkExpenseDialog(item.id)}>
-                                        Link
-                                      </Button>
-                                      <Button size="xs" variant="ghost" onClick={() => openEditItemDialog(item)}>
-                                        Edit
-                                      </Button>
-                                      <Button
-                                        size="xs"
-                                        variant="ghost"
-                                        className="text-rose-600"
-                                        onClick={() => {
-                                          if (item.expenseCount > 0) {
-                                            alert("Cannot delete item with linked expenses. Unlink all expenses first.");
-                                            return;
-                                          }
-                                          if (confirm("Delete this budget item?")) {
-                                            deleteItem.mutate({ id: item.id });
-                                          }
-                                        }}
-                                      >
-                                        Delete
-                                      </Button>
-                                    </div>
-                                  </td>
+                                  {canEditBudgets && (
+                                    <td className="px-4 py-3 text-right">
+                                      <div className="flex justify-end gap-1">
+                                        <Button size="xs" variant="ghost" onClick={() => openLinkExpenseDialog(item.id)}>
+                                          Link
+                                        </Button>
+                                        <Button size="xs" variant="ghost" onClick={() => openEditItemDialog(item)}>
+                                          Edit
+                                        </Button>
+                                        <Button
+                                          size="xs"
+                                          variant="ghost"
+                                          className="text-rose-600"
+                                          onClick={() => {
+                                            if (item.expenseCount > 0) {
+                                              alert("Cannot delete item with linked expenses. Unlink all expenses first.");
+                                              return;
+                                            }
+                                            if (confirm("Delete this budget item?")) {
+                                              deleteItem.mutate({ id: item.id });
+                                            }
+                                          }}
+                                        >
+                                          Delete
+                                        </Button>
+                                      </div>
+                                    </td>
+                                  )}
                                 </tr>
                               );
                             })}
@@ -499,7 +522,7 @@ function BudgetsRoute() {
                                 {project.totalBudget - project.totalActual >= 0 ? "+" : ""}
                                 {formatCurrency(project.totalBudget - project.totalActual)}
                               </td>
-                              <td colSpan={2} />
+                              <td colSpan={canEditBudgets ? 2 : 1} />
                             </tr>
                           </tfoot>
                         </table>
