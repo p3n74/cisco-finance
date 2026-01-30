@@ -150,14 +150,30 @@ function SignedInHome() {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Pending Verification</CardDescription>
-            <CardTitle className="text-2xl text-amber-500">
+            <CardDescription>Deficit</CardDescription>
+            <CardTitle
+              className={`text-2xl ${
+                !stats
+                  ? ""
+                  : stats.pendingVerificationAmount === 0
+                    ? "text-foreground"
+                    : stats.pendingVerificationAmount > 0
+                      ? "text-emerald-500"
+                      : "text-rose-500"
+              }`}
+            >
               {stats ? formatCurrency(stats.pendingVerificationAmount) : "—"}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-xs text-muted-foreground">
-              {stats?.unverifiedTransactionsCount ?? 0} transactions
+              {!stats
+                ? "—"
+                : stats.pendingVerificationAmount === 0
+                  ? "In sync (net movement = net cashflow)"
+                  : stats.pendingVerificationAmount > 0
+                    ? "Likely income not yet verified"
+                    : "Likely expenses not yet verified"}
             </p>
           </CardContent>
         </Card>
