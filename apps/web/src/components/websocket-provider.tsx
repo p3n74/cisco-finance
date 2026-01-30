@@ -54,14 +54,16 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
 
     checkAuth();
 
-    // Subscribe to auth changes
-    const unsubscribe = authClient.$store.listen("$sessionSignal", () => {
+    // Subscribe to auth changes (listen may return an unsubscribe function or nothing)
+    const unsubscribe = authClient.$store.listen?.("$sessionSignal", () => {
       checkAuth();
     });
 
     return () => {
       mounted = false;
-      unsubscribe();
+      if (typeof unsubscribe === "function") {
+        unsubscribe();
+      }
     };
   }, []);
 

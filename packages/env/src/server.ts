@@ -15,6 +15,8 @@ export const env = createEnv({
     EMAIL_PASSWORD: z.string().min(1).optional().default("placeholder"),
     NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
     PORT: z.coerce.number().optional().default(3000),
+    // 32-byte key for AES-256-GCM (use base64 or any string; server hashes to 32 bytes). Set in production.
+    CHAT_ENCRYPTION_KEY: z.string().min(16).optional().default("cisco-finance-chat-dev-key-change-in-production"),
   },
   runtimeEnv: process.env,
   emptyStringAsUndefined: true,

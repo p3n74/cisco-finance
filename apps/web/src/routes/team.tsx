@@ -18,6 +18,8 @@ import {
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PresenceStatusIndicator } from "@/components/presence-status";
+import { usePresence } from "@/hooks/usePresence";
 import { queryClient, trpc } from "@/utils/trpc";
 import { toast } from "sonner";
 
@@ -65,6 +67,11 @@ function TeamRoute() {
   const myRoleQuery = useQuery(myRoleQueryOptions);
   
   const isVP = myRoleQuery.data?.role === "VP_FINANCE";
+
+  const teamUserIds = (teamQuery.data ?? [])
+    .map((u) => u.registeredUser?.id)
+    .filter((id): id is string => !!id);
+  const { statuses: presenceStatuses } = usePresence(teamUserIds, !!teamQuery.data?.length);
 
   const addMemberMutation = useMutation(
     trpc.team.add.mutationOptions({
@@ -179,9 +186,11 @@ function TeamRoute() {
                       </td>
                       <td className="px-5 py-4">
                         {user.registeredUser ? (
-                          <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                            Active
-                          </span>
+                          <PresenceStatusIndicator
+                            status={presenceStatuses[user.registeredUser.id] ?? "offline"}
+                            showLabel
+                            size="md"
+                          />
                         ) : (
                           <span className="inline-flex items-center rounded-full bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-600 dark:text-amber-400">
                             Pending Signup

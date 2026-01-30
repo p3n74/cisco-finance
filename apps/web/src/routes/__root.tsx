@@ -7,6 +7,7 @@ import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 import type { trpc } from "@/utils/trpc";
 
 import Header from "@/components/header";
+import { ChatPopup } from "@/components/chat-popup";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { WebSocketProvider } from "@/components/websocket-provider";
@@ -56,6 +57,7 @@ function RootComponent() {
               <Outlet />
             </main>
           </div>
+          <ChatPopup />
         </WebSocketProvider>
         <Toaster richColors />
       </ThemeProvider>

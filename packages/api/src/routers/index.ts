@@ -4,6 +4,8 @@ import { TRPCError } from "@trpc/server";
 import { accountEditorProcedure, budgetEditorProcedure, cashflowEditorProcedure, protectedProcedure, publicProcedure, receiptEditorProcedure, router } from "../index";
 import { WS_EVENTS, type WsEmitter, type Context } from "../context";
 import { teamRouter } from "./team";
+import { chatRouter } from "./chat";
+import { presenceRouter } from "./presence";
 import { sendEmail } from "../services/email";
 import { env } from "@cisco-finance/env/server";
 
@@ -66,6 +68,8 @@ export const appRouter = router({
   }),
   
   team: teamRouter,
+  chat: chatRouter,
+  presence: presenceRouter,
 
   privateData: protectedProcedure.query(({ ctx }) => {
     return {

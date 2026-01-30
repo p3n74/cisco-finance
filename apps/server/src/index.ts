@@ -1,5 +1,4 @@
 import { createServer } from "node:http";
-import { createContext, setWsEmitter } from "@cisco-finance/api/context";
 import { appRouter } from "@cisco-finance/api/routers/index";
 import { auth } from "@cisco-finance/auth";
 import { env } from "@cisco-finance/env/server";
@@ -7,7 +6,8 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { toNodeHandler } from "better-auth/node";
 import cors from "cors";
 import express from "express";
-import { emitToAll, emitToUser, initWebSocket } from "./websocket";
+import { createContext, setWsEmitter, setPresenceGetter } from "@cisco-finance/api/context";
+import { emitToAll, emitToUser, getPresenceMap, initWebSocket } from "./websocket";
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,11 +21,12 @@ const httpServer = createServer(app);
 // Initialize WebSocket server
 initWebSocket(httpServer, env.CORS_ORIGIN);
 
-// Wire up WebSocket emitter to API context
+// Wire up WebSocket emitter and presence getter to API context
 setWsEmitter({
   emitToUser: (userId, payload) => emitToUser(userId, payload),
   emitToAll: (payload) => emitToAll(payload),
 });
+setPresenceGetter(() => getPresenceMap());
 
 app.use(
   cors({

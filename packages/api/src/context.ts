@@ -18,6 +18,7 @@ export const WS_EVENTS = {
   ACTIVITY_LOGGED: "activity:logged",
   STATS_UPDATED: "stats:updated",
   BUDGET_UPDATED: "budget:updated",
+  CHAT_MESSAGE_NEW: "chat:message",
 } as const;
 
 export type WsEventType = (typeof WS_EVENTS)[keyof typeof WS_EVENTS];
@@ -30,6 +31,8 @@ export interface WsEventPayload {
   message?: string;
 }
 
+export type PresenceStatus = "online" | "away" | "offline";
+
 /**
  * WebSocket emitter functions that can be injected into context
  */
@@ -38,8 +41,11 @@ export interface WsEmitter {
   emitToAll: (payload: WsEventPayload) => void;
 }
 
-// Store for the WebSocket emitter (set by server)
+export type GetPresenceMap = () => Record<string, PresenceStatus>;
+
+// Store for the WebSocket emitter and presence getter (set by server)
 let wsEmitter: WsEmitter | null = null;
+let presenceGetter: GetPresenceMap | null = null;
 
 export function setWsEmitter(emitter: WsEmitter) {
   wsEmitter = emitter;
@@ -47,6 +53,14 @@ export function setWsEmitter(emitter: WsEmitter) {
 
 export function getWsEmitter(): WsEmitter | null {
   return wsEmitter;
+}
+
+export function setPresenceGetter(getter: GetPresenceMap) {
+  presenceGetter = getter;
+}
+
+export function getPresenceGetter(): GetPresenceMap | null {
+  return presenceGetter;
 }
 
 export async function createContext(opts: CreateExpressContextOptions) {
@@ -68,6 +82,7 @@ export async function createContext(opts: CreateExpressContextOptions) {
     userRole,
     prisma,
     ws: wsEmitter,
+    getPresenceMap: presenceGetter ?? (() => ({})),
   };
 }
 

@@ -13,11 +13,49 @@ export const WS_EVENTS = {
   RECEIPT_UPDATED: "receipt:updated",
   ACTIVITY_LOGGED: "activity:logged",
   STATS_UPDATED: "stats:updated",
-  
+  CHAT_MESSAGE_NEW: "chat:message",
+
   // Room management
   JOIN_USER_ROOM: "join:user",
   LEAVE_USER_ROOM: "leave:user",
+
+  // Presence (online / away / offline)
+  PRESENCE_HEARTBEAT: "presence:heartbeat",
+  PRESENCE_UPDATE: "presence:update",
 } as const;
+
+export type PresenceStatus = "online" | "away" | "offline";
+
+const PRESENCE_ROOM = "presence";
+const AWAY_AFTER_MS = 5 * 60 * 1000; // 5 min no activity = away
+const AWAY_CHECK_INTERVAL_MS = 60 * 1000; // check every 1 min
+
+interface PresenceEntry {
+  status: "online" | "away";
+  lastActivity: number;
+  socketIds: Set<string>;
+}
+
+const presenceMap = new Map<string, PresenceEntry>();
+let awayCheckInterval: ReturnType<typeof setInterval> | null = null;
+
+function broadcastPresence(userId: string, status: PresenceStatus) {
+  if (!io) return;
+  io.to(PRESENCE_ROOM).emit(WS_EVENTS.PRESENCE_UPDATE, { userId, status });
+}
+
+function startAwayCheckInterval() {
+  if (awayCheckInterval) return;
+  awayCheckInterval = setInterval(() => {
+    const now = Date.now();
+    for (const [userId, entry] of presenceMap.entries()) {
+      if (entry.status === "online" && now - entry.lastActivity >= AWAY_AFTER_MS) {
+        entry.status = "away";
+        broadcastPresence(userId, "away");
+      }
+    }
+  }, AWAY_CHECK_INTERVAL_MS);
+}
 
 export type WsEventType = typeof WS_EVENTS[keyof typeof WS_EVENTS];
 
@@ -62,12 +100,23 @@ export function initWebSocket(httpServer: HttpServer, corsOrigin: string): Serve
   io.on("connection", (socket: Socket) => {
     console.log(`[WS] Client connected: ${socket.id}`);
 
-    // Handle user room joining (for user-specific events)
+    // Handle user room joining (for user-specific events) + presence
     socket.on(WS_EVENTS.JOIN_USER_ROOM, (userId: string) => {
       if (userId && typeof userId === "string") {
         const room = `user:${userId}`;
         socket.join(room);
-        console.log(`[WS] Socket ${socket.id} joined room ${room}`);
+        socket.join(PRESENCE_ROOM);
+        let entry = presenceMap.get(userId);
+        if (!entry) {
+          entry = { status: "online", lastActivity: Date.now(), socketIds: new Set() };
+          presenceMap.set(userId, entry);
+        }
+        entry.socketIds.add(socket.id);
+        entry.lastActivity = Date.now();
+        entry.status = "online";
+        broadcastPresence(userId, "online");
+        startAwayCheckInterval();
+        console.log(`[WS] Socket ${socket.id} joined room ${room} and presence`);
       }
     });
 
@@ -76,11 +125,45 @@ export function initWebSocket(httpServer: HttpServer, corsOrigin: string): Serve
       if (userId && typeof userId === "string") {
         const room = `user:${userId}`;
         socket.leave(room);
+        socket.leave(PRESENCE_ROOM);
+        const entry = presenceMap.get(userId);
+        if (entry) {
+          entry.socketIds.delete(socket.id);
+          if (entry.socketIds.size === 0) {
+            presenceMap.delete(userId);
+            broadcastPresence(userId, "offline");
+          }
+        }
         console.log(`[WS] Socket ${socket.id} left room ${room}`);
       }
     });
 
+    socket.on(WS_EVENTS.PRESENCE_HEARTBEAT, () => {
+      const userId = Array.from(presenceMap.entries()).find(([, e]) => e.socketIds.has(socket.id))?.[0];
+      if (userId) {
+        const entry = presenceMap.get(userId);
+        if (entry) {
+          entry.lastActivity = Date.now();
+          if (entry.status === "away") {
+            entry.status = "online";
+            broadcastPresence(userId, "online");
+          }
+        }
+      }
+    });
+
     socket.on("disconnect", (reason) => {
+      const userId = Array.from(presenceMap.entries()).find(([, e]) => e.socketIds.has(socket.id))?.[0];
+      if (userId) {
+        const entry = presenceMap.get(userId);
+        if (entry) {
+          entry.socketIds.delete(socket.id);
+          if (entry.socketIds.size === 0) {
+            presenceMap.delete(userId);
+            broadcastPresence(userId, "offline");
+          }
+        }
+      }
       console.log(`[WS] Client disconnected: ${socket.id}, reason: ${reason}`);
     });
   });
@@ -94,6 +177,17 @@ export function initWebSocket(httpServer: HttpServer, corsOrigin: string): Serve
  */
 export function getIO(): Server | null {
   return io;
+}
+
+/**
+ * Get current presence status for user IDs (for tRPC presence.getStatuses)
+ */
+export function getPresenceMap(): Record<string, PresenceStatus> {
+  const out: Record<string, PresenceStatus> = {};
+  for (const [userId, entry] of presenceMap.entries()) {
+    out[userId] = entry.status;
+  }
+  return out;
 }
 
 /**

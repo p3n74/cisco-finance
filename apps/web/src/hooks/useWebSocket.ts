@@ -13,8 +13,11 @@ const WS_EVENTS = {
   RECEIPT_UPDATED: "receipt:updated",
   ACTIVITY_LOGGED: "activity:logged",
   STATS_UPDATED: "stats:updated",
+  CHAT_MESSAGE_NEW: "chat:message",
   JOIN_USER_ROOM: "join:user",
   LEAVE_USER_ROOM: "leave:user",
+  PRESENCE_HEARTBEAT: "presence:heartbeat",
+  PRESENCE_UPDATE: "presence:update",
 } as const;
 
 interface WsEventPayload {
@@ -54,6 +57,12 @@ const EVENT_TO_QUERY_KEYS: Record<string, string[][]> = {
   ],
   [WS_EVENTS.STATS_UPDATED]: [
     ["overview"],
+  ],
+  [WS_EVENTS.CHAT_MESSAGE_NEW]: [
+    ["chat"],
+  ],
+  [WS_EVENTS.PRESENCE_UPDATE]: [
+    ["presence"],
   ],
 };
 
@@ -205,7 +214,7 @@ export function useWebSocket({ userId, enabled = true }: UseWebSocketOptions): W
       console.log("[WS] Connected:", socket.id);
       setState((prev) => ({ ...prev, isConnected: true }));
 
-      // Join user room if userId is provided
+      // Join user room (and presence room on server) if userId is provided
       if (userId) {
         socket.emit(WS_EVENTS.JOIN_USER_ROOM, userId);
       }
@@ -223,8 +232,26 @@ export function useWebSocket({ userId, enabled = true }: UseWebSocketOptions): W
     // Listen for batched updates
     socket.on("batch:update", handleBatchUpdate);
 
+    // Presence: when any user's status changes, refetch presence so UI updates
+    socket.on(WS_EVENTS.PRESENCE_UPDATE, () => {
+      queryClient.invalidateQueries({ queryKey: ["presence"] });
+    });
+
+    // Presence: heartbeat every 2 min and on window focus so we stay "online" (not "away")
+    const HEARTBEAT_INTERVAL_MS = 2 * 60 * 1000;
+    let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+    const onPresenceHeartbeat = () => {
+      if (socket.connected && userId) socket.emit(WS_EVENTS.PRESENCE_HEARTBEAT);
+    };
+    if (userId) {
+      heartbeatTimer = setInterval(onPresenceHeartbeat, HEARTBEAT_INTERVAL_MS);
+      window.addEventListener("focus", onPresenceHeartbeat);
+    }
+
     // Cleanup
     return () => {
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      if (userId) window.removeEventListener("focus", onPresenceHeartbeat);
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
       }

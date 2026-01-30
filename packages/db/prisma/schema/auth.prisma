@@ -14,6 +14,8 @@ model User {
   uploadedReceipts       Receipt[]
   activityLogs    ActivityLog[]
   createdBudgetProjects  BudgetProject[]
+  sentChatMessages     ChatMessage[]    @relation("ChatMessageSender")
+  receivedChatMessages ChatMessage[]    @relation("ChatMessageReceiver")
 
   @@unique([email])
   @@map("user")
@@ -257,4 +259,23 @@ model ReceiptSubmission {
   @@index([cashflowEntryId])
   @@index([createdAt])
   @@map("receipt_submission")
+}
+
+// Team chat: direct messages between authorized users (encrypted at rest)
+model ChatMessage {
+  id               String    @id @default(cuid())
+  senderId         String
+  sender           User      @relation("ChatMessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  receiverId       String
+  receiver         User      @relation("ChatMessageReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  contentEncrypted String    @db.Text // AES-256-GCM ciphertext (base64)
+  iv               String    @db.VarChar(24) // 12 bytes base64
+  createdAt        DateTime  @default(now())
+  readAt           DateTime? // when receiver viewed the conversation
+
+  @@index([senderId, receiverId])
+  @@index([receiverId, senderId])
+  @@index([createdAt])
+  @@index([receiverId, readAt])
+  @@map("chat_message")
 }
