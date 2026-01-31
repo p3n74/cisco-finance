@@ -49,5 +49,6 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --retries=3 \
 
 # Start the server
 # Cloud Run will automatically set PORT env var, which the app will use
-# Using bun run directly ensures proper module resolution
-CMD ["bun", "run", "--cwd", "apps/server", "start"]
+# Run source directly with Bun (Bun handles TypeScript and workspaces natively)
+# This ensures proper module resolution for dynamic imports and external deps
+CMD ["bun", "run", "--cwd", "apps/server", "src/index.ts"]

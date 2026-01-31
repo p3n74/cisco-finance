@@ -62,19 +62,17 @@ import { existsSync } from "node:fs";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Import db package statically to ensure Prisma and external deps are available
-// This must be done before dynamic imports to ensure module resolution works
-import "@cisco-finance/db";
-
 // Now dynamically import and initialize the rest of the application
 // Using dynamic imports ensures the server is already listening before
-// heavy modules (auth, routers, etc.) are loaded
+// heavy modules (Prisma, auth, routers, etc.) are loaded
 console.log("Initializing application modules (async)...");
 
 (async () => {
   try {
     console.log("Loading application modules...");
     
+    // Import all application modules dynamically
+    // This ensures the server is already listening before heavy modules load
     const [
       { appRouter },
       { auth },
@@ -89,7 +87,7 @@ console.log("Initializing application modules (async)...");
       import("@trpc/server/adapters/express"),
       import("better-auth/node"),
       import("cors"),
-      import("@cisco-finance/api/context"),
+      import("@cisco-finance/api/context"), // This will import db internally
       import("./websocket"),
     ]);
 
