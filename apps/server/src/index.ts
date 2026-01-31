@@ -54,11 +54,7 @@ httpServer.on("error", (error: Error) => {
   process.exit(1);
 });
 
-// Now dynamically import and initialize the rest of the application
-// Using dynamic imports ensures the server is already listening before
-// heavy modules (Prisma, auth, etc.) are loaded
-console.log("Initializing application modules (async)...");
-
+// Import path utilities (lightweight, safe to import)
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
@@ -66,8 +62,15 @@ import { existsSync } from "node:fs";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Use dynamic imports to load heavy modules asynchronously
-// This ensures the server is already listening before Prisma/auth initialize
+// Import db package statically to ensure Prisma and external deps are available
+// This must be done before dynamic imports to ensure module resolution works
+import "@cisco-finance/db";
+
+// Now dynamically import and initialize the rest of the application
+// Using dynamic imports ensures the server is already listening before
+// heavy modules (auth, routers, etc.) are loaded
+console.log("Initializing application modules (async)...");
+
 (async () => {
   try {
     console.log("Loading application modules...");

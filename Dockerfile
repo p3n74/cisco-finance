@@ -6,8 +6,10 @@ WORKDIR /app
 FROM base AS builder
 
 # Build arguments for environment variables
+# VITE_SERVER_URL should be set to your Cloud Run URL (without trailing slash)
+# If not set, will default to using current origin at runtime
 ARG VITE_SERVER_URL
-ENV VITE_SERVER_URL=$VITE_SERVER_URL
+ENV VITE_SERVER_URL=${VITE_SERVER_URL:-}
 
 # Copy all files first to ensure workspace resolution works for catalogs and prisma configs
 # This is necessary for Bun workspaces to properly resolve dependencies
