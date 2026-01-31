@@ -54,16 +54,10 @@ httpServer.on("error", (error: Error) => {
   process.exit(1);
 });
 
-// Now import and initialize the rest of the application
-console.log("Initializing application modules...");
-
-import { appRouter } from "@cisco-finance/api/routers/index";
-import { auth } from "@cisco-finance/auth";
-import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { toNodeHandler } from "better-auth/node";
-import cors from "cors";
-import { createContext, setWsEmitter, setPresenceGetter } from "@cisco-finance/api/context";
-import { emitToAll, emitToUser, getPresenceMap, initWebSocket } from "./websocket";
+// Now dynamically import and initialize the rest of the application
+// Using dynamic imports ensures the server is already listening before
+// heavy modules (Prisma, auth, etc.) are loaded
+console.log("Initializing application modules (async)...");
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -72,49 +66,77 @@ import { existsSync } from "node:fs";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-try {
-  // Initialize WebSocket server
-  initWebSocket(httpServer, env.CORS_ORIGIN);
+// Use dynamic imports to load heavy modules asynchronously
+// This ensures the server is already listening before Prisma/auth initialize
+(async () => {
+  try {
+    console.log("Loading application modules...");
+    
+    const [
+      { appRouter },
+      { auth },
+      { createExpressMiddleware },
+      { toNodeHandler },
+      corsModule,
+      { createContext, setWsEmitter, setPresenceGetter },
+      { emitToAll, emitToUser, getPresenceMap, initWebSocket },
+    ] = await Promise.all([
+      import("@cisco-finance/api/routers/index"),
+      import("@cisco-finance/auth"),
+      import("@trpc/server/adapters/express"),
+      import("better-auth/node"),
+      import("cors"),
+      import("@cisco-finance/api/context"),
+      import("./websocket"),
+    ]);
 
-  // Wire up WebSocket emitter and presence getter to API context
-  setWsEmitter({
-    emitToUser: (userId, payload) => emitToUser(userId, payload),
-    emitToAll: (payload) => emitToAll(payload),
-  });
-  setPresenceGetter(() => getPresenceMap());
+    const cors = corsModule.default;
 
-  app.use(
-    cors({
-      origin: env.CORS_ORIGIN,
-      methods: ["GET", "POST", "OPTIONS"],
-      allowedHeaders: ["Content-Type", "Authorization"],
-      credentials: true,
-    }),
-  );
+    // Initialize WebSocket server
+    initWebSocket(httpServer, env.CORS_ORIGIN);
 
-  app.all("/api/auth", toNodeHandler(auth));
-  app.all("/api/auth/*path", toNodeHandler(auth));
+    // Wire up WebSocket emitter and presence getter to API context
+    setWsEmitter({
+      emitToUser: (userId, payload) => emitToUser(userId, payload),
+      emitToAll: (payload) => emitToAll(payload),
+    });
+    setPresenceGetter(() => getPresenceMap());
 
-  app.use(
-    "/trpc",
-    createExpressMiddleware({
-      router: appRouter,
-      createContext,
-    }),
-  );
+    app.use(
+      cors({
+        origin: env.CORS_ORIGIN,
+        methods: ["GET", "POST", "OPTIONS"],
+        allowedHeaders: ["Content-Type", "Authorization"],
+        credentials: true,
+      }),
+    );
 
-  app.use(express.json());
+    app.all("/api/auth", toNodeHandler(auth));
+    app.all("/api/auth/*path", toNodeHandler(auth));
 
-  // Health check endpoint for WebSocket status
-  app.get("/ws/health", (_req, res) => {
-    res.status(200).json({ status: "ok", websocket: true });
-  });
+    app.use(
+      "/trpc",
+      createExpressMiddleware({
+        router: appRouter,
+        createContext,
+      }),
+    );
 
-  console.log("✅ Application modules initialized successfully");
-} catch (error) {
-  console.error("❌ Error initializing application modules:", error);
-  // Don't exit - server is already listening, just log the error
-}
+    app.use(express.json());
+
+    // Health check endpoint for WebSocket status
+    app.get("/ws/health", (_req, res) => {
+      res.status(200).json({ status: "ok", websocket: true });
+    });
+
+    console.log("✅ Application modules initialized successfully");
+  } catch (error) {
+    console.error("❌ Error initializing application modules:", error);
+    console.error("Stack:", (error as Error).stack);
+    // Don't exit - server is already listening, just log the error
+    // Health check endpoint will still work
+  }
+})();
 
 // Serve static files from the web app (if it exists)
 const webDistPath = path.resolve(__dirname, "../../web/dist");
