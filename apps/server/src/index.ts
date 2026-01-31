@@ -11,6 +11,7 @@ import { emitToAll, emitToUser, getPresenceMap, initWebSocket } from "./websocke
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -60,21 +61,47 @@ app.get("/ws/health", (_req, res) => {
   res.status(200).json({ status: "ok", websocket: true });
 });
 
-// Serve static files from the web app
+// Serve static files from the web app (if it exists)
 const webDistPath = path.resolve(__dirname, "../../web/dist");
-app.use(express.static(webDistPath));
+if (existsSync(webDistPath)) {
+  app.use(express.static(webDistPath));
+  
+  // Fallback to index.html for SPA routing
+  app.get("/*path", (req, res, next) => {
+    // Don't intercept TRPC or Auth routes
+    if (req.path.startsWith("/trpc") || req.path.startsWith("/api/auth")) {
+      return next();
+    }
+    const indexPath = path.join(webDistPath, "index.html");
+    if (existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      next();
+    }
+  });
+} else {
+  console.warn(`Web dist path not found: ${webDistPath}. Static file serving disabled.`);
+}
 
-// Fallback to index.html for SPA routing
-app.get("/*path", (req, res, next) => {
-  // Don't intercept TRPC or Auth routes
-  if (req.path.startsWith("/trpc") || req.path.startsWith("/api/auth")) {
-    return next();
-  }
-  res.sendFile(path.join(webDistPath, "index.html"));
+const port = env.PORT || 3000;
+const host = env.HOST || "0.0.0.0"; // Default to 0.0.0.0 for Cloud Run compatibility
+
+httpServer.listen(port, host, () => {
+  console.log(`Server is running on http://${host}:${port}`);
+  console.log("WebSocket server is ready for connections");
 });
 
-const port = env.PORT;
-httpServer.listen(port, () => {
-  console.log(`Server is running on http://localhost:${port}`);
-  console.log("WebSocket server is ready for connections");
+// Handle server errors
+httpServer.on("error", (error: Error) => {
+  console.error("Server error:", error);
+  process.exit(1);
+});
+
+// Graceful shutdown
+process.on("SIGTERM", () => {
+  console.log("SIGTERM received, shutting down gracefully");
+  httpServer.close(() => {
+    console.log("Server closed");
+    process.exit(0);
+  });
 });
