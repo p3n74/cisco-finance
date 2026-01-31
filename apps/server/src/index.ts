@@ -13,6 +13,25 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 
+// Handle uncaught errors
+process.on("uncaughtException", (error: Error) => {
+  console.error("Uncaught Exception:", error);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason: unknown) => {
+  console.error("Unhandled Rejection:", reason);
+  process.exit(1);
+});
+
+console.log("Starting server initialization...");
+console.log("Environment:", {
+  NODE_ENV: env.NODE_ENV,
+  PORT: env.PORT,
+  HOST: env.HOST,
+  DATABASE_URL: env.DATABASE_URL ? "***configured***" : "missing",
+});
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -86,16 +105,27 @@ if (existsSync(webDistPath)) {
 const port = env.PORT || 3000;
 const host = env.HOST || "0.0.0.0"; // Default to 0.0.0.0 for Cloud Run compatibility
 
-httpServer.listen(port, host, () => {
-  console.log(`Server is running on http://${host}:${port}`);
-  console.log("WebSocket server is ready for connections");
-});
+console.log(`Attempting to start server on ${host}:${port}...`);
 
-// Handle server errors
-httpServer.on("error", (error: Error) => {
-  console.error("Server error:", error);
+try {
+  httpServer.listen(port, host, () => {
+    console.log(`✅ Server is running on http://${host}:${port}`);
+    console.log("✅ WebSocket server is ready for connections");
+    console.log("✅ Server is ready to accept requests");
+  });
+
+  // Handle server errors
+  httpServer.on("error", (error: Error) => {
+    console.error("❌ Server error:", error);
+    if ((error as NodeJS.ErrnoException).code === "EADDRINUSE") {
+      console.error(`Port ${port} is already in use`);
+    }
+    process.exit(1);
+  });
+} catch (error) {
+  console.error("❌ Failed to start server:", error);
   process.exit(1);
-});
+}
 
 // Graceful shutdown
 process.on("SIGTERM", () => {

@@ -41,9 +41,11 @@ COPY --from=builder /app /app
 EXPOSE 3000
 
 # Health check for Cloud Run (optional but recommended)
-HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+# Note: Cloud Run has its own health checks, this is just for Docker
+HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --retries=3 \
   CMD bun --version || exit 1
 
 # Start the server
 # Cloud Run will automatically set PORT env var, which the app will use
+# Using bun run directly ensures proper module resolution
 CMD ["bun", "run", "--cwd", "apps/server", "start"]
