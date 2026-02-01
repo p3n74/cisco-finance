@@ -78,17 +78,6 @@ function TeamRoute() {
     .filter((id): id is string => !!id);
   const { statuses: presenceStatuses } = usePresence(teamUserIds, !!teamQuery.data?.length);
 
-  if (myRoleQuery.isLoading) {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center">
-        <Loader2 className="size-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-  if (myRoleQuery.isSuccess && !isWhitelisted) {
-    return <NotWhitelistedView />;
-  }
-
   const addMemberMutation = useMutation(
     trpc.team.add.mutationOptions({
       onSuccess: () => {
@@ -115,6 +104,17 @@ function TeamRoute() {
       }
     }),
   );
+
+  if (myRoleQuery.isLoading) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center">
+        <Loader2 className="size-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (myRoleQuery.isSuccess && !isWhitelisted) {
+    return <NotWhitelistedView />;
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
