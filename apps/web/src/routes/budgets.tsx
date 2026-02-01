@@ -80,17 +80,6 @@ function BudgetsRoute() {
   const projectsQuery = useQuery({ ...projectsQueryOptions, enabled: isWhitelisted });
   const projects = projectsQuery.data?.items ?? [];
 
-  if (myRoleQuery.isLoading) {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center">
-        <Loader2 className="size-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-  if (myRoleQuery.isSuccess && !isWhitelisted) {
-    return <NotWhitelistedView />;
-  }
-
   // State for dialogs
   const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
   const [expandedProjectId, setExpandedProjectId] = useState<string | null>(null);
@@ -216,6 +205,17 @@ function BudgetsRoute() {
       },
     })
   );
+
+  if (myRoleQuery.isLoading) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center">
+        <Loader2 className="size-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (myRoleQuery.isSuccess && !isWhitelisted) {
+    return <NotWhitelistedView />;
+  }
 
   // Calculate totals
   const totalBudget = projects.reduce((sum, p) => sum + p.totalBudget, 0);

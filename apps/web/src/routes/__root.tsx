@@ -7,6 +7,7 @@ import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 import type { trpc } from "@/utils/trpc";
 
 import Header from "@/components/header";
+import { BackgroundProvider, useBackground } from "@/components/background-provider";
 import { ChatPopup } from "@/components/chat-popup";
 import { TabTitleUnread } from "@/components/tab-title-unread";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -14,6 +15,18 @@ import { Toaster } from "@/components/ui/sonner";
 import { WebSocketProvider } from "@/components/websocket-provider";
 
 import "../index.css";
+
+function BgWrapper({ children }: { children: React.ReactNode }) {
+  const bg = useBackground();
+  return (
+    <div
+      className="bg-image flex h-svh min-w-0 flex-col overflow-x-hidden"
+      data-bg={bg?.bgIndex ?? 1}
+    >
+      {children}
+    </div>
+  );
+}
 
 export interface RouterAppContext {
   trpc: typeof trpc;
@@ -25,7 +38,7 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
   head: () => ({
     meta: [
       {
-        title: "Cisco Finance",
+        title: "TRACE",
       },
       {
         name: "description",
@@ -52,13 +65,15 @@ function RootComponent() {
         storageKey="vite-ui-theme"
       >
         <WebSocketProvider>
-          <TabTitleUnread />
-          <div className="bg-image min-h-svh min-w-0 overflow-x-hidden">
-            <Header />
-            <main className="min-w-0 pb-6 sm:pb-8">
-              <Outlet />
-            </main>
-          </div>
+          <BackgroundProvider>
+            <TabTitleUnread />
+            <BgWrapper>
+              <Header className="shrink-0" />
+              <main className="min-h-0 min-w-0 flex-1 overflow-y-auto pb-6 sm:pb-8">
+                <Outlet />
+              </main>
+            </BgWrapper>
+          </BackgroundProvider>
           <ChatPopup />
         </WebSocketProvider>
         <Toaster richColors />

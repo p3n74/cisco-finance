@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 /**
- * Shown when a logged-in user is not on the CISCO Finance whitelist.
+ * Shown when a logged-in user is not on the TRACE whitelist.
  * Only whitelisted users (including CISCO_OFFICER) can view finances.
  */
 export function NotWhitelistedView() {
@@ -26,7 +26,7 @@ export function NotWhitelistedView() {
             <CardTitle className="text-xl">Access restricted</CardTitle>
           </div>
           <CardDescription>
-            You don’t have access to CISCO Finance. Only whitelisted users can view finances. If you
+            You don’t have access to TRACE. Only whitelisted users can view finances. If you
             believe you should have access, ask THE Vice President for Finance to add you to the team.
           </CardDescription>
         </CardHeader>
