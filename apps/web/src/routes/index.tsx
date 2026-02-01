@@ -17,16 +17,27 @@ import {
   Upload,
   Archive,
   Circle,
+  FileDown,
+  Loader2,
 } from "lucide-react";
 
 import { authClient } from "@/lib/auth-client";
+import { downloadActivityLogPdf } from "@/lib/pdf-report";
 import { NotWhitelistedView } from "@/components/not-whitelisted-view";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogPopup,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { trpc } from "@/utils/trpc";
+import { queryClient, trpc } from "@/utils/trpc";
 
 export const Route = createFileRoute("/")({
   component: LandingPage,
@@ -76,6 +87,11 @@ function SignedInHome() {
   const statsQuery = useQuery(trpc.overview.stats.queryOptions());
   const budgetOverviewQuery = useQuery(trpc.budgetProjects.overview.queryOptions());
   const activityQuery = useQuery(trpc.activityLog.list.queryOptions({ limit: 20 }));
+
+  const [printDialogOpen, setPrintDialogOpen] = useState(false);
+  const [printDateFrom, setPrintDateFrom] = useState("");
+  const [printDateTo, setPrintDateTo] = useState("");
+  const [printGenerating, setPrintGenerating] = useState(false);
 
   const stats = statsQuery.data;
   const budgetOverview = budgetOverviewQuery.data;
@@ -291,9 +307,20 @@ function SignedInHome() {
 
         {/* Activity Log */}
         <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Activity Log</CardTitle>
-            <CardDescription>Recent actions across your workspace</CardDescription>
+          <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+            <div>
+              <CardTitle>Activity Log</CardTitle>
+              <CardDescription>Recent actions across your workspace</CardDescription>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0 gap-2"
+              onClick={() => setPrintDialogOpen(true)}
+            >
+              <FileDown className="size-4" />
+              Print Activity Log
+            </Button>
           </CardHeader>
           <CardContent>
             {activityQuery.isLoading ? (
@@ -339,6 +366,82 @@ function SignedInHome() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Print Activity Log Dialog */}
+      <Dialog open={printDialogOpen} onOpenChange={setPrintDialogOpen}>
+        <DialogPopup className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Print Activity Log</DialogTitle>
+            <DialogDescription>
+              Choose a date range. The report will include all activity in that period (up to 500 entries).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 space-y-4">
+            <div className="space-y-2">
+              <Label className="text-muted-foreground">From</Label>
+              <Input
+                type="date"
+                value={printDateFrom}
+                onChange={(e) => setPrintDateFrom(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-muted-foreground">To</Label>
+              <Input
+                type="date"
+                value={printDateTo}
+                onChange={(e) => setPrintDateTo(e.target.value)}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Leave both empty for all dates (most recent 500 entries).
+            </p>
+          </div>
+          <DialogFooter className="mt-6">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setPrintDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={printGenerating}
+              onClick={async () => {
+                setPrintGenerating(true);
+                try {
+                  const data = await queryClient.fetchQuery(
+                    trpc.activityLog.list.queryOptions({
+                      limit: 500,
+                      dateFrom: printDateFrom.trim() || undefined,
+                      dateTo: printDateTo.trim() || undefined,
+                    })
+                  );
+                  downloadActivityLogPdf(data.items, {
+                    dateFrom: printDateFrom.trim() || undefined,
+                    dateTo: printDateTo.trim() || undefined,
+                  });
+                  setPrintDialogOpen(false);
+                  toast.success("Activity log PDF downloaded.");
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : "Failed to generate PDF");
+                } finally {
+                  setPrintGenerating(false);
+                }
+              }}
+            >
+              {printGenerating ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Generating…
+                </>
+              ) : (
+                "Generate PDF"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
 
       {/* Receipt Submission for signed-in users */}
       <div className="mt-8">
