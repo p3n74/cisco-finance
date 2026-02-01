@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRef, useEffect, useState } from "react";
-import { MessageCircle, ArrowLeft, Search, Send } from "lucide-react";
+import { MessageCircle, ArrowLeft, Search, Send, Bell } from "lucide-react";
 import { toast } from "sonner";
 
 import { authClient } from "@/lib/auth-client";
@@ -42,6 +42,14 @@ export function ChatPopup() {
     ...messagesOptions,
     enabled: !!session && isOpen && !!selectedUserId,
   });
+
+  const pingUser = useMutation(
+    trpc.chat.pingUser.mutationOptions({
+      onError: (err) => {
+        toast.error(err.message ?? "Failed to ping");
+      },
+    })
+  );
 
   const sendMessage = useMutation(
     trpc.chat.sendMessage.mutationOptions({
@@ -163,6 +171,17 @@ export function ChatPopup() {
                   </div>
                   <span className="truncate text-sm font-medium">{otherUser?.name ?? "User"}</span>
                 </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 shrink-0"
+                  onClick={() => selectedUserId && pingUser.mutate({ receiverId: selectedUserId })}
+                  disabled={pingUser.isPending}
+                  title="Ping (play notification sound)"
+                  aria-label="Ping"
+                >
+                  <Bell className="h-4 w-4" />
+                </Button>
               </div>
               <div className="flex-1 overflow-y-auto p-3 space-y-2">
                 {messages.map((m) => {
@@ -177,7 +196,7 @@ export function ChatPopup() {
                     >
                       <div
                         className={cn(
-                          "max-w-[85%] rounded-2xl px-3 py-2 text-sm",
+                          "max-w-[85%] min-w-0 break-words rounded-2xl px-3 py-2 text-sm",
                           fromMe
                             ? "bg-primary text-primary-foreground rounded-br-md"
                             : "bg-muted text-foreground rounded-bl-md"

@@ -13,7 +13,9 @@ export const WS_EVENTS = {
   RECEIPT_UPDATED: "receipt:updated",
   ACTIVITY_LOGGED: "activity:logged",
   STATS_UPDATED: "stats:updated",
+  BUDGET_UPDATED: "budget:updated",
   CHAT_MESSAGE_NEW: "chat:message",
+  CHAT_PING: "chat:ping",
 
   // Room management
   JOIN_USER_ROOM: "join:user",
@@ -66,10 +68,12 @@ export type WsEventType = typeof WS_EVENTS[keyof typeof WS_EVENTS];
 export interface WsEventPayload {
   event: WsEventType;
   entityId?: string;
-  action: "created" | "updated" | "archived" | "bound" | "unbound" | "deleted";
+  action: "created" | "updated" | "archived" | "bound" | "unbound" | "deleted" | "linked" | "completed";
   timestamp: number;
   /** Optional message for toast notifications */
   message?: string;
+  /** Optional preview (e.g. chat message snippet) */
+  preview?: string;
 }
 
 // Store for debouncing events per room

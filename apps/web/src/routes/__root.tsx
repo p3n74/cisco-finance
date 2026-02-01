@@ -8,6 +8,7 @@ import type { trpc } from "@/utils/trpc";
 
 import Header from "@/components/header";
 import { ChatPopup } from "@/components/chat-popup";
+import { TabTitleUnread } from "@/components/tab-title-unread";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { WebSocketProvider } from "@/components/websocket-provider";
@@ -51,6 +52,7 @@ function RootComponent() {
         storageKey="vite-ui-theme"
       >
         <WebSocketProvider>
+          <TabTitleUnread />
           <div className="bg-image min-h-svh min-w-0 overflow-x-hidden">
             <Header />
             <main className="min-w-0 pb-6 sm:pb-8">

@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { protectedProcedure, router, whitelistedProcedure } from "../index";
-import { WS_EVENTS } from "../context";
 import { sendEmail } from "../services/email";
 import { env } from "@cisco-finance/env/server";
 import type { Context } from "../context";

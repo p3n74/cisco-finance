@@ -2,14 +2,25 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { authClient } from "@/lib/auth-client";
 
+export interface WsEventPayload {
+  event: string;
+  entityId?: string;
+  action: string;
+  timestamp: number;
+  message?: string;
+}
+
 interface WebSocketContextValue {
   isConnected: boolean;
   lastEventTime: number | null;
+  /** Last received event (e.g. for tab title "New message" when backgrounded) */
+  lastEvent: WsEventPayload | null;
 }
 
 const WebSocketContext = createContext<WebSocketContextValue>({
   isConnected: false,
   lastEventTime: null,
+  lastEvent: null,
 });
 
 export function useWebSocketContext() {
@@ -76,6 +87,7 @@ export function WebSocketProvider({ children }: WebSocketProviderProps) {
   const value: WebSocketContextValue = {
     isConnected,
     lastEventTime: lastEvent?.timestamp ?? null,
+    lastEvent: lastEvent ?? null,
   };
 
   return (

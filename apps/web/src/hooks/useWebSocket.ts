@@ -2,7 +2,8 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import { toast } from "sonner";
 import { env } from "@cisco-finance/env/web";
-import { queryClient } from "@/utils/trpc";
+import { playNotificationSound } from "@/lib/notification-sound";
+import { queryClient, trpc } from "@/utils/trpc";
 
 /**
  * WebSocket event types - must match server
@@ -14,6 +15,7 @@ const WS_EVENTS = {
   ACTIVITY_LOGGED: "activity:logged",
   STATS_UPDATED: "stats:updated",
   CHAT_MESSAGE_NEW: "chat:message",
+  CHAT_PING: "chat:ping",
   JOIN_USER_ROOM: "join:user",
   LEAVE_USER_ROOM: "leave:user",
   PRESENCE_HEARTBEAT: "presence:heartbeat",
@@ -27,6 +29,8 @@ interface WsEventPayload {
   timestamp: number;
   /** Optional message for toast notifications */
   message?: string;
+  /** Optional preview (e.g. chat message snippet) */
+  preview?: string;
 }
 
 /**
@@ -58,9 +62,8 @@ const EVENT_TO_QUERY_KEYS: Record<string, string[][]> = {
   [WS_EVENTS.STATS_UPDATED]: [
     ["overview"],
   ],
-  [WS_EVENTS.CHAT_MESSAGE_NEW]: [
-    ["chat"],
-  ],
+  // Chat: invalidated explicitly below with trpc query keys (generic ["chat"] doesn't match tRPC key shape)
+  [WS_EVENTS.CHAT_MESSAGE_NEW]: [],
   [WS_EVENTS.PRESENCE_UPDATE]: [
     ["presence"],
   ],
@@ -184,6 +187,31 @@ export function useWebSocket({ userId, enabled = true }: UseWebSocketOptions): W
       // Show toast notification for activity events with messages
       if (event.event === WS_EVENTS.ACTIVITY_LOGGED && event.message) {
         showActivityToast(event.action, event.message);
+      }
+
+      // New chat message: toast, sound, and invalidate chat queries so badge/tab title update
+      if (event.event === WS_EVENTS.CHAT_MESSAGE_NEW) {
+        const label = event.message ?? "New message";
+        toast(label, {
+          description: event.preview ?? undefined,
+          position: "bottom-left",
+          duration: 5000,
+          icon: "💬",
+        });
+        playNotificationSound();
+        queryClient.invalidateQueries({ queryKey: trpc.chat.getUnreadCount.queryOptions().queryKey });
+        queryClient.invalidateQueries({ queryKey: trpc.chat.listConversations.queryOptions().queryKey });
+      }
+
+      // Ping: play notification sound and show "X has pinged you" toast
+      if (event.event === WS_EVENTS.CHAT_PING) {
+        const label = event.message ?? "Someone has pinged you";
+        toast(label, {
+          position: "bottom-left",
+          duration: 4000,
+          icon: "🔔",
+        });
+        playNotificationSound();
       }
     }
 

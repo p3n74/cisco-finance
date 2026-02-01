@@ -1,7 +1,6 @@
 import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
 
 import { auth } from "@cisco-finance/auth";
-import { env } from "@cisco-finance/env/server";
 import { prisma } from "@cisco-finance/db";
 import { fromNodeHeaders } from "better-auth/node";
 
@@ -19,6 +18,7 @@ export const WS_EVENTS = {
   STATS_UPDATED: "stats:updated",
   BUDGET_UPDATED: "budget:updated",
   CHAT_MESSAGE_NEW: "chat:message",
+  CHAT_PING: "chat:ping",
 } as const;
 
 export type WsEventType = (typeof WS_EVENTS)[keyof typeof WS_EVENTS];
@@ -27,8 +27,10 @@ export interface WsEventPayload {
   event: WsEventType;
   entityId?: string;
   action: "created" | "updated" | "archived" | "bound" | "unbound" | "deleted" | "linked" | "completed";
-  /** Optional message for toast notifications */
+  /** Optional message for toast notifications (e.g. "New message from John") */
   message?: string;
+  /** Optional preview for chat toasts (e.g. first 80 chars of message) */
+  preview?: string;
 }
 
 export type PresenceStatus = "online" | "away" | "offline";

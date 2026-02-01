@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { protectedProcedure, router, whitelistedProcedure } from "../index";
+import { router, whitelistedProcedure } from "../index";
 import { WS_EVENTS } from "../context";
 import { encryptChatMessage, decryptChatMessage } from "../services/chat-crypto";
 import { env } from "@cisco-finance/env/server";
@@ -198,10 +198,14 @@ export const chatRouter = router({
         },
       });
 
+      const preview =
+        input.content.length > 80 ? `${input.content.slice(0, 80)}…` : input.content;
       ctx.ws?.emitToUser(input.receiverId, {
         event: WS_EVENTS.CHAT_MESSAGE_NEW,
         action: "created",
         entityId: message.id,
+        message: `New message from ${message.sender.name ?? "Someone"}`,
+        preview,
       });
 
       return {
@@ -213,5 +217,28 @@ export const chatRouter = router({
         sender: message.sender,
         receiver: message.receiver,
       };
+    }),
+
+  // Ping a user: plays notification sound and shows "X has pinged you" toast
+  pingUser: whitelistedProcedure
+    .input(z.object({ receiverId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      if (input.receiverId === ctx.session.user.id) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "You cannot ping yourself" });
+      }
+      const receiver = await ctx.prisma.user.findFirst({
+        where: { id: input.receiverId },
+        select: { id: true },
+      });
+      if (!receiver) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+      }
+      const senderName = ctx.session.user.name ?? "Someone";
+      ctx.ws?.emitToUser(input.receiverId, {
+        event: WS_EVENTS.CHAT_PING,
+        action: "created",
+        message: `${senderName} has pinged you`,
+      });
+      return { ok: true };
     }),
 });
