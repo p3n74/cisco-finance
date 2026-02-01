@@ -87,16 +87,31 @@ export const appRouter = router({
     list: whitelistedProcedure
       .input(
         z.object({
-          limit: z.number().min(1).max(100).optional().default(50),
+          limit: z.number().min(1).max(500).optional().default(50),
           cursor: z.string().optional(),
+          dateFrom: z.string().optional(), // ISO date string for report/print
+          dateTo: z.string().optional(),
         }).optional()
       )
       .query(async ({ ctx, input }) => {
         const limit = input?.limit ?? 50;
         const cursor = input?.cursor;
+        const dateFrom = input?.dateFrom ? new Date(input.dateFrom) : null;
+        const dateTo = input?.dateTo ? new Date(input.dateTo) : null;
+        const hasDateRange = dateFrom != null || dateTo != null;
+        const where =
+          dateFrom != null && dateTo != null
+            ? { createdAt: { gte: dateFrom, lte: dateTo } }
+            : dateFrom != null
+              ? { createdAt: { gte: dateFrom } }
+              : dateTo != null
+                ? { createdAt: { lte: dateTo } }
+                : undefined;
+        const effectiveLimit = hasDateRange ? Math.min(limit, 500) : limit;
         const logs = await ctx.prisma.activityLog.findMany({
-          take: limit + 1,
-          ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+          take: effectiveLimit + (cursor && !hasDateRange ? 1 : 0),
+          ...(cursor && !hasDateRange ? { cursor: { id: cursor }, skip: 1 } : {}),
+          ...(where ? { where } : {}),
           orderBy: [{ createdAt: "desc" }, { id: "desc" }],
           include: {
             user: {
@@ -104,8 +119,8 @@ export const appRouter = router({
             },
           },
         });
-        const nextCursor = logs.length > limit ? logs[limit - 1].id : null;
-        const items = logs.slice(0, limit);
+        const nextCursor = !hasDateRange && logs.length > effectiveLimit ? logs[effectiveLimit - 1].id : null;
+        const items = logs.slice(0, effectiveLimit);
         return {
           items: items.map((log) => ({
             id: log.id,

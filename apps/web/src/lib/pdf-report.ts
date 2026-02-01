@@ -303,6 +303,82 @@ export function downloadPdfReport(
   doc.save(name);
 }
 
+// ----- Activity Log Report -----
+
+export type ActivityLogReportItem = {
+  createdAt: Date;
+  action: string;
+  description: string;
+  user: { id: string; name: string | null; image: string | null };
+};
+
+/**
+ * Builds a PDF for the activity log (date range, table of actions).
+ */
+export function buildActivityLogPdf(
+  items: ActivityLogReportItem[],
+  options: { dateFrom?: string; dateTo?: string; title?: string } = {}
+): jsPDF {
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  doc.setFontSize(18);
+  doc.text(options.title ?? "Activity Log", PAGE_MARGIN, 18);
+  doc.setFontSize(10);
+  const dateRange =
+    options.dateFrom && options.dateTo
+      ? `${options.dateFrom} to ${options.dateTo}`
+      : options.dateFrom
+        ? `From ${options.dateFrom}`
+        : options.dateTo
+          ? `Up to ${options.dateTo}`
+          : "All dates";
+  doc.text(`Period: ${dateRange}`, PAGE_MARGIN, 25);
+  doc.text(`Generated: ${new Date().toLocaleString("en-PH")}`, PAGE_MARGIN, 30);
+  doc.text(`Total entries: ${items.length}`, PAGE_MARGIN, 35);
+
+  if (items.length === 0) {
+    doc.setFontSize(11);
+    doc.text("No activity in the selected period.", PAGE_MARGIN, 45);
+    return doc;
+  }
+
+  autoTable(doc, {
+    startY: 42,
+    head: [["Date", "User", "Action", "Description"]],
+    body: items.map((item) => [
+      new Date(item.createdAt).toLocaleString("en-PH", {
+        dateStyle: "short",
+        timeStyle: "short",
+      }),
+      item.user?.name ?? "Unknown",
+      item.action.slice(0, 12) + (item.action.length > 12 ? "…" : ""),
+      item.description.slice(0, 60) + (item.description.length > 60 ? "…" : ""),
+    ]),
+    margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
+    styles: { fontSize: 8, font: "helvetica", fontStyle: "normal", overflow: "linebreak" },
+    headStyles: { fillColor: [66, 66, 66], fontSize: 8, font: "helvetica", fontStyle: "normal" },
+    alternateRowStyles: { fillColor: [245, 245, 245] },
+    columnStyles: {
+      0: { cellWidth: 28 },
+      1: { cellWidth: 42 },
+      2: { cellWidth: 22 },
+      3: { cellWidth: "auto" },
+    },
+  });
+
+  return doc;
+}
+
+export function downloadActivityLogPdf(
+  items: ActivityLogReportItem[],
+  options: { dateFrom?: string; dateTo?: string; filename?: string } = {}
+): void {
+  const doc = buildActivityLogPdf(items, { ...options, title: "Activity Log" });
+  const name =
+    options.filename ??
+    `activity-log-${options.dateFrom ?? "all"}-${options.dateTo ?? "all"}.pdf`.replace(/\/|\\/g, "-");
+  doc.save(name);
+}
+
 /**
  * Builds a project report PDF with:
  * 1. Project info + initial budget plan table

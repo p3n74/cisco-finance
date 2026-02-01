@@ -4,14 +4,14 @@ import { authClient } from "@/lib/auth-client";
 import { useWebSocketContext } from "@/components/websocket-provider";
 import { queryClient, trpc } from "@/utils/trpc";
 
-const BASE_TITLE = "Cisco Finance";
+const BASE_TITLE = "TRACE";
 const CHAT_MESSAGE_EVENT = "chat:message";
 
 /**
  * Updates the browser tab title like Messenger:
- * - "(3) Cisco Finance" when there are unread messages
- * - "New message - Cisco Finance" when a message arrives and the tab is in the background
- * - "Cisco Finance" when no unread messages
+ * - "(3) TRACE" when there are unread messages
+ * - "New message - TRACE" when a message arrives and the tab is in the background
+ * - "TRACE" when no unread messages
  */
 export function TabTitleUnread() {
   const { data: session } = authClient.useSession();

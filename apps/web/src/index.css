@@ -165,13 +165,18 @@
   position: fixed;
   inset: -20px;
   z-index: -2;
-  background-image: url("/images/bg1.jpg");
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
   filter: blur(12px) saturate(0.8);
   transform: scale(1.05);
 }
+.bg-image[data-bg="1"]::before { background-image: url("/images/bg1.jpg"); }
+.bg-image[data-bg="2"]::before { background-image: url("/images/bg2.jpg"); }
+.bg-image[data-bg="3"]::before { background-image: url("/images/bg3.jpg"); }
+.bg-image[data-bg="4"]::before { background-image: url("/images/bg4.jpg"); }
+.bg-image[data-bg="5"]::before { background-image: url("/images/bg5.jpg"); }
+.bg-image[data-bg="6"]::before { background-image: url("/images/bg6.jpg"); }
 
 .bg-image::after {
   content: "";
@@ -189,6 +194,66 @@
 /* Alternate background image */
 .bg-image-alt::before {
   background-image: url("/images/bg2.jpg");
+}
+
+/* How it works section: staggered card animations */
+.how-section .how-card {
+  opacity: 0;
+  transform: translateY(1.25rem);
+  transition:
+    opacity 0.5s ease-out,
+    transform 0.5s ease-out;
+}
+.how-section .how-card:nth-child(1) { transition-delay: 0ms; }
+.how-section .how-card:nth-child(2) { transition-delay: 80ms; }
+.how-section .how-card:nth-child(3) { transition-delay: 160ms; }
+.how-section .how-card:nth-child(4) { transition-delay: 240ms; }
+.how-section .how-card:nth-child(5) { transition-delay: 320ms; }
+.how-section .how-card:nth-child(6) { transition-delay: 400ms; }
+.how-section.in-view .how-card {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Everything your org needs section: staggered card animations */
+.everything-section .everything-card {
+  opacity: 0;
+  transform: translateY(1.25rem);
+  transition:
+    opacity 0.5s ease-out,
+    transform 0.5s ease-out;
+}
+.everything-section .everything-card:nth-child(1) { transition-delay: 0ms; }
+.everything-section .everything-card:nth-child(2) { transition-delay: 80ms; }
+.everything-section .everything-card:nth-child(3) { transition-delay: 160ms; }
+.everything-section .everything-card:nth-child(4) { transition-delay: 240ms; }
+.everything-section .everything-card:nth-child(5) { transition-delay: 320ms; }
+.everything-section .everything-card:nth-child(6) { transition-delay: 400ms; }
+.everything-section.in-view .everything-card {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Who it's for section: staggered card animations */
+.who-section .who-card {
+  opacity: 0;
+  transform: translateY(1.25rem);
+  transition:
+    opacity 0.5s ease-out,
+    transform 0.5s ease-out;
+}
+.who-section .who-card:nth-child(1) {
+  transition-delay: 0ms;
+}
+.who-section .who-card:nth-child(2) {
+  transition-delay: 120ms;
+}
+.who-section .who-card:nth-child(3) {
+  transition-delay: 240ms;
+}
+.who-section.in-view .who-card {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 /* Mobile: horizontal scroll for tables, smooth and touch-friendly */

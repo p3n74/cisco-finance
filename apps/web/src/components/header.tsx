@@ -60,10 +60,10 @@ export default function Header() {
             >
               <img
                 src="/cisco-face-primary.ico"
-                alt="Cisco Finance"
+                alt="TRACE"
                 className="h-8 w-8 rounded-lg object-contain"
               />
-              <span className="hidden sm:inline">Cisco Finance</span>
+              <span className="hidden sm:inline">TRACE</span>
             </Link>
 
             {/* Desktop nav: hidden on mobile */}
@@ -141,11 +141,14 @@ export default function Header() {
         >
           <DialogHeader className="flex flex-row items-center justify-between border-b border-border/50 pb-3">
             <DialogTitle className="text-lg">Menu</DialogTitle>
-            <DialogClose asChild>
-              <Button variant="ghost" size="icon" aria-label="Close menu">
-                <X className="size-5" />
-              </Button>
-            </DialogClose>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Close menu"
+              onClick={closeMobileMenu}
+            >
+              <X className="size-5" />
+            </Button>
           </DialogHeader>
           <nav className="flex flex-col gap-1 py-4">
             {publicLinks.map(({ to, label }) => (

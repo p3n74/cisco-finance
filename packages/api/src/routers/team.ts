@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { protectedProcedure, router, whitelistedProcedure } from "../index";
+import { protectedProcedure, publicProcedure, router, whitelistedProcedure } from "../index";
 import { sendEmail } from "../services/email";
 import { env } from "@cisco-finance/env/server";
 import type { Context } from "../context";
@@ -45,6 +45,16 @@ const vpFinanceProcedure = protectedProcedure.use(({ ctx, next }) => {
 });
 
 export const teamRouter = router({
+  /** Public: get the latest VP for Finance email (for Contact us on landing). */
+  getVpFinanceEmail: publicProcedure.query(async ({ ctx }) => {
+    const vp = await ctx.prisma.authorizedUser.findFirst({
+      where: { role: "VP_FINANCE" },
+      orderBy: { createdAt: "desc" },
+      select: { email: true },
+    });
+    return vp?.email ?? null;
+  }),
+
   // Get current user's role
   getMyRole: protectedProcedure.query(({ ctx }) => {
     return { role: ctx.userRole };
