@@ -76,6 +76,7 @@ model CashflowEntry {
   receipts            Receipt[]
   receiptSubmissions  ReceiptSubmission[]
   budgetItemExpenses  BudgetItemExpense[]
+  budgetItemIncomes   BudgetItemIncome[]
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
 
@@ -192,26 +193,29 @@ model BudgetProject {
   @@map("budget_project")
 }
 
-// Budget Items - Individual expense line items within a project
+// Budget Items - Line items within a project (expenses or income e.g. fees)
 model BudgetItem {
   id              String              @id @default(cuid())
   budgetProjectId String
   budgetProject   BudgetProject       @relation(fields: [budgetProjectId], references: [id], onDelete: Cascade)
   name            String
   description     String?
+  type            String              @default("expense") // "expense" | "income"
   estimatedAmount Decimal
   notes           String?
   isActive        Boolean             @default(true)
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
   expenses        BudgetItemExpense[]
+  incomes         BudgetItemIncome[]
 
   @@index([budgetProjectId])
   @@index([isActive])
+  @@index([type])
   @@map("budget_item")
 }
 
-// Links budget items to actual cashflow entries (actual spending)
+// Links budget items (expense type) to actual cashflow entries (actual spending)
 model BudgetItemExpense {
   id              String        @id @default(cuid())
   budgetItemId    String
@@ -224,6 +228,21 @@ model BudgetItemExpense {
   @@index([budgetItemId])
   @@index([cashflowEntryId])
   @@map("budget_item_expense")
+}
+
+// Links budget items (income type) to cashflow entries (collected money e.g. fees)
+model BudgetItemIncome {
+  id              String        @id @default(cuid())
+  budgetItemId    String
+  budgetItem      BudgetItem    @relation(fields: [budgetItemId], references: [id], onDelete: Restrict)
+  cashflowEntryId String
+  cashflowEntry   CashflowEntry @relation(fields: [cashflowEntryId], references: [id], onDelete: Restrict)
+  createdAt       DateTime      @default(now())
+
+  @@unique([budgetItemId, cashflowEntryId])
+  @@index([budgetItemId])
+  @@index([cashflowEntryId])
+  @@map("budget_item_income")
 }
 
 // Public receipt submissions (no authentication required)

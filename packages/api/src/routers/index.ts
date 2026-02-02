@@ -1323,6 +1323,18 @@ export const appRouter = router({
                     },
                   },
                 },
+                incomes: {
+                  include: {
+                    cashflowEntry: {
+                      select: {
+                        id: true,
+                        amount: true,
+                        description: true,
+                        date: true,
+                      },
+                    },
+                  },
+                },
               },
             },
           },
@@ -1331,15 +1343,26 @@ export const appRouter = router({
         const items = projects.slice(0, limit);
         return {
           items: items.map((project) => {
-            const totalBudget = project.items.reduce(
-              (sum, item) => sum + Number(item.estimatedAmount),
-              0
-            );
+            const totalBudget = project.items
+              .filter((i) => i.type === "expense")
+              .reduce((sum, item) => sum + Number(item.estimatedAmount), 0);
+            const totalIncomeBudget = project.items
+              .filter((i) => i.type === "income")
+              .reduce((sum, item) => sum + Number(item.estimatedAmount), 0);
             const totalActual = project.items.reduce(
               (sum, item) =>
                 sum +
                 item.expenses.reduce(
                   (expSum, exp) => expSum + Math.abs(Number(exp.cashflowEntry.amount)),
+                  0
+                ),
+              0
+            );
+            const totalActualIncome = project.items.reduce(
+              (sum, item) =>
+                sum +
+                item.incomes.reduce(
+                  (incSum, inc) => incSum + Number(inc.cashflowEntry.amount),
                   0
                 ),
               0
@@ -1356,21 +1379,31 @@ export const appRouter = router({
               createdAt: project.createdAt,
               updatedAt: project.updatedAt,
               totalBudget,
+              totalIncomeBudget,
               totalActual,
+              totalActualIncome,
               itemCount: project.items.length,
               items: project.items.map((item) => ({
                 id: item.id,
                 name: item.name,
                 description: item.description,
+                type: item.type,
                 estimatedAmount: Number(item.estimatedAmount),
                 notes: item.notes,
                 isActive: item.isActive,
                 createdAt: item.createdAt,
-                actualAmount: item.expenses.reduce(
-                  (sum, exp) => sum + Math.abs(Number(exp.cashflowEntry.amount)),
-                  0
-                ),
+                actualAmount:
+                  item.type === "expense"
+                    ? item.expenses.reduce(
+                        (sum, exp) => sum + Math.abs(Number(exp.cashflowEntry.amount)),
+                        0
+                      )
+                    : item.incomes.reduce(
+                        (sum, inc) => sum + Number(inc.cashflowEntry.amount),
+                        0
+                      ),
                 expenseCount: item.expenses.length,
+                incomeCount: item.incomes.length,
                 expenses: item.expenses.map((exp) => ({
                   id: exp.id,
                   cashflowEntryId: exp.cashflowEntryId,
@@ -1379,6 +1412,15 @@ export const appRouter = router({
                     amount: Number(exp.cashflowEntry.amount),
                   },
                   createdAt: exp.createdAt,
+                })),
+                incomes: item.incomes.map((inc) => ({
+                  id: inc.id,
+                  cashflowEntryId: inc.cashflowEntryId,
+                  cashflowEntry: {
+                    ...inc.cashflowEntry,
+                    amount: Number(inc.cashflowEntry.amount),
+                  },
+                  createdAt: inc.createdAt,
                 })),
               })),
             };
@@ -1416,6 +1458,22 @@ export const appRouter = router({
                     },
                   },
                 },
+                incomes: {
+                  include: {
+                    cashflowEntry: {
+                      select: {
+                        id: true,
+                        amount: true,
+                        description: true,
+                        date: true,
+                        category: true,
+                        accountEntry: {
+                          select: { id: true, account: true, description: true },
+                        },
+                      },
+                    },
+                  },
+                },
               },
             },
           },
@@ -1423,15 +1481,26 @@ export const appRouter = router({
 
         if (!project) return null;
 
-        const totalBudget = project.items.reduce(
-          (sum, item) => sum + Number(item.estimatedAmount),
-          0
-        );
+        const totalBudget = project.items
+          .filter((i) => i.type === "expense")
+          .reduce((sum, item) => sum + Number(item.estimatedAmount), 0);
+        const totalIncomeBudget = project.items
+          .filter((i) => i.type === "income")
+          .reduce((sum, item) => sum + Number(item.estimatedAmount), 0);
         const totalActual = project.items.reduce(
           (sum, item) =>
             sum +
             item.expenses.reduce(
               (expSum, exp) => expSum + Math.abs(Number(exp.cashflowEntry.amount)),
+              0
+            ),
+          0
+        );
+        const totalActualIncome = project.items.reduce(
+          (sum, item) =>
+            sum +
+            item.incomes.reduce(
+              (incSum, inc) => incSum + Number(inc.cashflowEntry.amount),
               0
             ),
           0
@@ -1448,19 +1517,30 @@ export const appRouter = router({
           createdAt: project.createdAt,
           updatedAt: project.updatedAt,
           totalBudget,
+          totalIncomeBudget,
           totalActual,
+          totalActualIncome,
           items: project.items.map((item) => ({
             id: item.id,
             name: item.name,
             description: item.description,
+            type: item.type,
             estimatedAmount: Number(item.estimatedAmount),
             notes: item.notes,
             isActive: item.isActive,
             createdAt: item.createdAt,
-            actualAmount: item.expenses.reduce(
-              (sum, exp) => sum + Math.abs(Number(exp.cashflowEntry.amount)),
-              0
-            ),
+            actualAmount:
+              item.type === "expense"
+                ? item.expenses.reduce(
+                    (sum, exp) => sum + Math.abs(Number(exp.cashflowEntry.amount)),
+                    0
+                  )
+                : item.incomes.reduce(
+                    (sum, inc) => sum + Number(inc.cashflowEntry.amount),
+                    0
+                  ),
+            expenseCount: item.expenses.length,
+            incomeCount: item.incomes.length,
             expenses: item.expenses.map((exp) => ({
               id: exp.id,
               cashflowEntryId: exp.cashflowEntryId,
@@ -1469,6 +1549,15 @@ export const appRouter = router({
                 amount: Number(exp.cashflowEntry.amount),
               },
               createdAt: exp.createdAt,
+            })),
+            incomes: item.incomes.map((inc) => ({
+              id: inc.id,
+              cashflowEntryId: inc.cashflowEntryId,
+              cashflowEntry: {
+                ...inc.cashflowEntry,
+                amount: Number(inc.cashflowEntry.amount),
+              },
+              createdAt: inc.createdAt,
             })),
           })),
         };
@@ -1599,9 +1688,12 @@ export const appRouter = router({
             include: {
               expenses: {
                 include: {
-                  cashflowEntry: {
-                    select: { amount: true },
-                  },
+                  cashflowEntry: { select: { amount: true } },
+                },
+              },
+              incomes: {
+                include: {
+                  cashflowEntry: { select: { amount: true } },
                 },
               },
             },
@@ -1614,7 +1706,18 @@ export const appRouter = router({
 
       const totalBudget = projects.reduce(
         (sum, p) =>
-          sum + p.items.reduce((iSum, item) => iSum + Number(item.estimatedAmount), 0),
+          sum +
+          p.items
+            .filter((i) => i.type === "expense")
+            .reduce((iSum, item) => iSum + Number(item.estimatedAmount), 0),
+        0
+      );
+      const totalIncomeBudget = projects.reduce(
+        (sum, p) =>
+          sum +
+          p.items
+            .filter((i) => i.type === "income")
+            .reduce((iSum, item) => iSum + Number(item.estimatedAmount), 0),
         0
       );
 
@@ -1626,6 +1729,20 @@ export const appRouter = router({
               iSum +
               item.expenses.reduce(
                 (eSum, exp) => eSum + Math.abs(Number(exp.cashflowEntry.amount)),
+                0
+              ),
+            0
+          ),
+        0
+      );
+      const totalActualIncome = projects.reduce(
+        (sum, p) =>
+          sum +
+          p.items.reduce(
+            (iSum, item) =>
+              iSum +
+              item.incomes.reduce(
+                (iIncSum, inc) => iIncSum + Number(inc.cashflowEntry.amount),
                 0
               ),
             0
@@ -1651,7 +1768,9 @@ export const appRouter = router({
         plannedCount: plannedProjects.length,
         completedCount: completedProjects.length,
         totalBudget,
+        totalIncomeBudget,
         totalActual,
+        totalActualIncome,
         upcomingEvents,
       };
     }),
@@ -1666,6 +1785,7 @@ export const appRouter = router({
           budgetProjectId: z.string(),
           name: z.string().min(2, "Name must be at least 2 characters"),
           description: z.string().optional(),
+          type: z.enum(["expense", "income"]).optional().default("expense"),
           estimatedAmount: z.coerce.number().min(0, "Amount must be positive"),
           notes: z.string().optional(),
         })
@@ -1687,6 +1807,7 @@ export const appRouter = router({
             budgetProjectId: input.budgetProjectId,
             name: input.name,
             description: input.description,
+            type: input.type,
             estimatedAmount: input.estimatedAmount,
             notes: input.notes,
           },
@@ -1713,6 +1834,7 @@ export const appRouter = router({
           id: z.string(),
           name: z.string().min(2).optional(),
           description: z.string().optional(),
+          type: z.enum(["expense", "income"]).optional(),
           estimatedAmount: z.coerce.number().min(0).optional(),
           notes: z.string().optional(),
         })
@@ -1734,7 +1856,7 @@ export const appRouter = router({
         });
       }),
 
-    // Delete item (only if no linked expenses)
+    // Delete item (only if no linked expenses or incomes)
     delete: budgetEditorProcedure
       .input(z.object({ id: z.string() }))
       .mutation(async ({ ctx, input }) => {
@@ -1744,6 +1866,7 @@ export const appRouter = router({
           include: {
             budgetProject: { select: { name: true } },
             expenses: { select: { id: true } },
+            incomes: { select: { id: true } },
           },
         });
 
@@ -1754,6 +1877,11 @@ export const appRouter = router({
         if (item.expenses.length > 0) {
           throw new Error(
             "Cannot delete budget item with linked expenses. Unlink all expenses first."
+          );
+        }
+        if (item.incomes.length > 0) {
+          throw new Error(
+            "Cannot delete budget item with linked income. Unlink all income first."
           );
         }
 
@@ -1863,18 +1991,121 @@ export const appRouter = router({
         return { deleted: true };
       }),
 
-    // Get unlinked cashflow entries (for linking dropdown)
+    // Link income cashflow entry to budget item (income type)
+    linkIncome: budgetEditorProcedure
+      .input(
+        z.object({
+          budgetItemId: z.string(),
+          cashflowEntryId: z.string(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        const item = await ctx.prisma.budgetItem.findFirst({
+          where: { id: input.budgetItemId },
+          include: { budgetProject: { select: { name: true } } },
+        });
+        if (!item) throw new Error("Budget item not found");
+        if (item.type !== "income") {
+          throw new Error("Only income-type budget items can link income. Change item type to Income first.");
+        }
+
+        const cashflow = await ctx.prisma.cashflowEntry.findFirst({
+          where: { id: input.cashflowEntryId },
+        });
+        if (!cashflow) throw new Error("Cashflow entry not found");
+        if (Number(cashflow.amount) <= 0) {
+          throw new Error("Only positive (inflow) cashflow entries can be linked as income.");
+        }
+
+        const income = await ctx.prisma.budgetItemIncome.create({
+          data: {
+            budgetItemId: input.budgetItemId,
+            cashflowEntryId: input.cashflowEntryId,
+          },
+        });
+
+        await logActivity(
+          ctx.prisma,
+          ctx.session.user.id,
+          "linked",
+          "budget_item_income",
+          `linked income "${cashflow.description}" to budget item "${item.name}"`,
+          income.id,
+          { budgetItemId: input.budgetItemId, cashflowEntryId: input.cashflowEntryId },
+          ctx.ws
+        );
+
+        return income;
+      }),
+
+    // Unlink income from budget item
+    unlinkIncome: budgetEditorProcedure
+      .input(z.object({ id: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        const income = await ctx.prisma.budgetItemIncome.findFirst({
+          where: { id: input.id },
+          include: {
+            budgetItem: true,
+            cashflowEntry: { select: { description: true } },
+          },
+        });
+        if (!income) throw new Error("Income link not found");
+
+        await ctx.prisma.budgetItemIncome.delete({ where: { id: input.id } });
+
+        await logActivity(
+          ctx.prisma,
+          ctx.session.user.id,
+          "unlinked",
+          "budget_item_income",
+          `unlinked "${income.cashflowEntry.description}" from budget item "${income.budgetItem.name}"`,
+          input.id,
+          undefined,
+          ctx.ws
+        );
+
+        return { deleted: true };
+      }),
+
+    // Get unlinked cashflow entries (for linking dropdown). Pass itemType to filter: expense = outflows, income = inflows.
     getUnlinkedCashflows: whitelistedProcedure
-      .input(z.object({ budgetItemId: z.string() }))
+      .input(
+        z.object({
+          budgetItemId: z.string(),
+          itemType: z.enum(["expense", "income"]).optional().default("expense"),
+        })
+      )
       .query(async ({ ctx, input }) => {
-        // Get already linked cashflow IDs for this budget item
+        if (input.itemType === "income") {
+          const linkedIncomes = await ctx.prisma.budgetItemIncome.findMany({
+            where: { budgetItemId: input.budgetItemId },
+            select: { cashflowEntryId: true },
+          });
+          const linkedIds = linkedIncomes.map((i) => i.cashflowEntryId);
+          const cashflows = await ctx.prisma.cashflowEntry.findMany({
+            where: {
+              isActive: true,
+              id: { notIn: linkedIds },
+              amount: { gt: 0 },
+            },
+            orderBy: { date: "desc" },
+            select: {
+              id: true,
+              description: true,
+              amount: true,
+              date: true,
+              category: true,
+              accountEntry: { select: { account: true } },
+            },
+          });
+          return cashflows.map((c) => ({ ...c, amount: Number(c.amount) }));
+        }
+
         const linkedExpenses = await ctx.prisma.budgetItemExpense.findMany({
           where: { budgetItemId: input.budgetItemId },
           select: { cashflowEntryId: true },
         });
         const linkedIds = linkedExpenses.map((e) => e.cashflowEntryId);
-
-        // Get all active cashflow entries not already linked to this item
         const cashflows = await ctx.prisma.cashflowEntry.findMany({
           where: {
             isActive: true,
@@ -1887,16 +2118,11 @@ export const appRouter = router({
             amount: true,
             date: true,
             category: true,
-            accountEntry: {
-              select: { account: true },
-            },
+            accountEntry: { select: { account: true } },
           },
         });
 
-        return cashflows.map((c) => ({
-          ...c,
-          amount: Number(c.amount),
-        }));
+        return cashflows.map((c) => ({ ...c, amount: Number(c.amount) }));
       }),
   }),
 
@@ -2299,7 +2525,7 @@ export const appRouter = router({
         };
       }),
 
-    // Project report: project info, budget plan, expenditures, receipts in order
+    // Project report: project info, budget plan (expenses + income), expenditures, collected income, receipts in order
     getProjectReportData: whitelistedProcedure
       .input(z.object({ projectId: z.string() }))
       .query(async ({ ctx, input }) => {
@@ -2330,16 +2556,38 @@ export const appRouter = router({
                     },
                   },
                 },
+                incomes: {
+                  orderBy: { createdAt: "asc" },
+                  include: {
+                    cashflowEntry: {
+                      include: {
+                        receiptSubmissions: {
+                          select: {
+                            id: true,
+                            submitterName: true,
+                            purpose: true,
+                            imageData: true,
+                            imageType: true,
+                            createdAt: true,
+                          },
+                          orderBy: { createdAt: "asc" },
+                        },
+                      },
+                    },
+                  },
+                },
               },
             },
           },
         });
         if (!project) return null;
 
-        const totalBudget = project.items.reduce(
-          (sum, item) => sum + Number(item.estimatedAmount),
-          0
-        );
+        const totalBudget = project.items
+          .filter((i) => i.type === "expense")
+          .reduce((sum, item) => sum + Number(item.estimatedAmount), 0);
+        const totalIncomeBudget = project.items
+          .filter((i) => i.type === "income")
+          .reduce((sum, item) => sum + Number(item.estimatedAmount), 0);
         const totalActual = project.items.reduce(
           (sum, item) =>
             sum +
@@ -2349,15 +2597,32 @@ export const appRouter = router({
             ),
           0
         );
+        const totalActualIncome = project.items.reduce(
+          (sum, item) =>
+            sum +
+            item.incomes.reduce(
+              (incSum, inc) => incSum + Number(inc.cashflowEntry.amount),
+              0
+            ),
+          0
+        );
 
         const budgetPlanRows = project.items.map((item) => ({
           itemName: item.name,
           description: item.description ?? "",
+          type: item.type as "expense" | "income",
           estimatedAmount: Number(item.estimatedAmount),
           notes: item.notes ?? "",
         }));
 
         type ExpenditureRow = {
+          date: Date;
+          budgetItemName: string;
+          description: string;
+          amount: number;
+          cashflowEntryId: string;
+        };
+        type IncomeRow = {
           date: Date;
           budgetItemName: string;
           description: string;
@@ -2402,6 +2667,30 @@ export const appRouter = router({
           cashflowEntryId: entry.id,
         }));
 
+        const incomeEntries: { date: Date; budgetItemName: string; entry: (typeof project.items)[0]["incomes"][0]["cashflowEntry"] }[] = [];
+        for (const item of project.items) {
+          for (const inc of item.incomes) {
+            incomeEntries.push({
+              date: inc.cashflowEntry.date,
+              budgetItemName: item.name,
+              entry: inc.cashflowEntry,
+            });
+          }
+        }
+        incomeEntries.sort(
+          (a, b) =>
+            new Date(a.date).getTime() - new Date(b.date).getTime() ||
+            a.budgetItemName.localeCompare(b.budgetItemName)
+        );
+
+        const incomeRows: IncomeRow[] = incomeEntries.map(({ date, budgetItemName, entry }) => ({
+          date,
+          budgetItemName,
+          description: entry.description,
+          amount: Number(entry.amount),
+          cashflowEntryId: entry.id,
+        }));
+
         const receiptsInOrder: ReceiptRow[] = [];
         for (const { entry } of expenseEntries) {
           for (const sub of entry.receiptSubmissions) {
@@ -2420,6 +2709,28 @@ export const appRouter = router({
             });
           }
         }
+        for (const { entry } of incomeEntries) {
+          for (const sub of entry.receiptSubmissions) {
+            receiptsInOrder.push({
+              entryId: entry.id,
+              entryDate: entry.date,
+              entryDescription: entry.description,
+              amount: Number(entry.amount),
+              receipt: {
+                id: sub.id,
+                imageData: sub.imageData,
+                imageType: sub.imageType,
+                submitterName: sub.submitterName,
+                purpose: sub.purpose,
+              },
+            });
+          }
+        }
+        receiptsInOrder.sort(
+          (a, b) =>
+            new Date(a.entryDate).getTime() - new Date(b.entryDate).getTime() ||
+            a.entryDescription.localeCompare(b.entryDescription)
+        );
 
         return {
           project: {
@@ -2431,9 +2742,12 @@ export const appRouter = router({
             status: project.status,
           },
           totalBudget,
+          totalIncomeBudget,
           totalActual,
+          totalActualIncome,
           budgetPlanRows,
           expenditureRows,
+          incomeRows,
           receiptsInOrder,
         };
       }),
