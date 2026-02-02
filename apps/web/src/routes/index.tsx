@@ -98,7 +98,10 @@ function SignedInHome() {
   const activities = activityQuery.data?.items ?? [];
 
   const netCashflow = stats?.netCashflow ?? 0;
-  const projectedCashflow = netCashflow - (budgetOverview?.totalBudget ?? 0);
+  const budgetedExpenditures = budgetOverview?.totalBudget ?? 0;
+  const actualExpenditures = budgetOverview?.totalActual ?? 0;
+  const remainingBudget = Math.max(0, budgetedExpenditures - actualExpenditures);
+  const projectedCashflow = netCashflow - remainingBudget;
 
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat("en-PH", {
@@ -220,7 +223,7 @@ function SignedInHome() {
           </CardHeader>
           <CardContent>
             <p className="text-xs text-muted-foreground">
-              Balance after planned events
+              Net minus remaining budgeted expenditures
             </p>
           </CardContent>
         </Card>
