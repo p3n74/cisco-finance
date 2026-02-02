@@ -38,11 +38,20 @@ export type ReportData = {
 export type ProjectReportBudgetPlanRow = {
   itemName: string;
   description: string;
+  type: "expense" | "income";
   estimatedAmount: number;
   notes: string;
 };
 
 export type ProjectReportExpenditureRow = {
+  date: Date;
+  budgetItemName: string;
+  description: string;
+  amount: number;
+  cashflowEntryId: string;
+};
+
+export type ProjectReportIncomeRow = {
   date: Date;
   budgetItemName: string;
   description: string;
@@ -60,9 +69,12 @@ export type ProjectReportData = {
     status: string;
   };
   totalBudget: number;
+  totalIncomeBudget: number;
   totalActual: number;
+  totalActualIncome: number;
   budgetPlanRows: ProjectReportBudgetPlanRow[];
   expenditureRows: ProjectReportExpenditureRow[];
+  incomeRows: ProjectReportIncomeRow[];
   receiptsInOrder: ReportReceiptRow[];
 };
 
@@ -380,10 +392,11 @@ export function downloadActivityLogPdf(
 }
 
 /**
- * Builds a project report PDF with:
- * 1. Project info + initial budget plan table
- * 2. Actual expenditures table + summary
- * 3. Receipts in order, 4 per page in a 2×2 grid (same as cashflow report)
+ * Builds a project report PDF (accounting-style):
+ * 1. Budget plan (budgeted revenue + budgeted expenditures)
+ * 2. Actual revenue (collections), then actual expenditures
+ * 3. Summary: revenue & expenditure variances, surplus/(deficit)
+ * 4. Receipts in order, 4 per page in a 2×2 grid
  */
 export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
@@ -425,10 +438,10 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
   doc.setFontSize(10);
   y += 4;
 
-  // ----- Initial Budget Plan -----
+  // ----- 1. Budget Plan (Budgeted Revenue + Budgeted Expenditures) -----
   doc.setFontSize(12);
   doc.setFont("helvetica", "bold");
-  doc.text("Initial Budget Plan", PAGE_MARGIN, y);
+  doc.text("1. Budget Plan", PAGE_MARGIN, y);
   y += 8;
   doc.setFont("helvetica", "normal");
 
@@ -439,22 +452,24 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
   } else {
     autoTable(doc, {
       startY: y,
-      head: [["Item", "Description", "Estimated Amount", "Notes"]],
+      head: [["Item", "Type", "Description", "Budgeted Amount", "Notes"]],
       body: data.budgetPlanRows.map((r) => [
-        r.itemName.slice(0, 28) + (r.itemName.length > 28 ? "…" : ""),
-        (r.description || "—").slice(0, 32) + (r.description.length > 32 ? "…" : ""),
+        r.itemName.slice(0, 24) + (r.itemName.length > 24 ? "…" : ""),
+        r.type === "income" ? "Revenue" : "Expenditure",
+        (r.description || "—").slice(0, 28) + (r.description.length > 28 ? "…" : ""),
         formatCurrency(r.estimatedAmount),
-        (r.notes || "—").slice(0, 24) + (r.notes.length > 24 ? "…" : ""),
+        (r.notes || "—").slice(0, 20) + (r.notes.length > 20 ? "…" : ""),
       ]),
       margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
       styles: { fontSize: 8, font: "helvetica", fontStyle: "normal" },
       headStyles: { fillColor: [66, 66, 66], fontSize: 8, font: "helvetica", fontStyle: "normal" },
       alternateRowStyles: { fillColor: [245, 245, 245] },
       columnStyles: {
-        0: { cellWidth: 35 },
-        1: { cellWidth: 50, overflow: "ellipsize" },
-        2: { cellWidth: 38, halign: "right" },
-        3: { cellWidth: 45, overflow: "ellipsize" },
+        0: { cellWidth: 30 },
+        1: { cellWidth: 26 },
+        2: { cellWidth: 40, overflow: "ellipsize" },
+        3: { cellWidth: 36, halign: "right" },
+        4: { cellWidth: 36, overflow: "ellipsize" },
       },
     });
     y =
@@ -462,21 +477,59 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
     y += 10;
   }
 
-  // ----- Actual Expenditures -----
+  // ----- 2. Actual Revenue (sources of funds – standard order: revenue before expenses) -----
   doc.setFontSize(12);
   doc.setFont("helvetica", "bold");
-  doc.text("Actual Expenditures", PAGE_MARGIN, y);
+  doc.text("2. Actual Revenue (Collections)", PAGE_MARGIN, y);
+  y += 8;
+  doc.setFont("helvetica", "normal");
+
+  const incomeRows = data.incomeRows ?? [];
+  if (incomeRows.length === 0) {
+    doc.setFontSize(9);
+    doc.text("No collections recorded.", PAGE_MARGIN, y);
+    y += 10;
+  } else {
+    autoTable(doc, {
+      startY: y,
+      head: [["Date", "Line Item", "Description", "Amount"]],
+      body: incomeRows.map((r) => [
+        new Date(r.date).toLocaleDateString("en-PH"),
+        r.budgetItemName.slice(0, 20) + (r.budgetItemName.length > 20 ? "…" : ""),
+        r.description.slice(0, 38) + (r.description.length > 38 ? "…" : ""),
+        formatCurrency(r.amount),
+      ]),
+      margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
+      styles: { fontSize: 8, font: "helvetica", fontStyle: "normal" },
+      headStyles: { fillColor: [66, 66, 66], fontSize: 8, font: "helvetica", fontStyle: "normal" },
+      alternateRowStyles: { fillColor: [240, 252, 240] },
+      columnStyles: {
+        0: { cellWidth: 24 },
+        1: { cellWidth: 32, overflow: "ellipsize" },
+        2: { cellWidth: 62, overflow: "ellipsize" },
+        3: { cellWidth: 40, halign: "right" },
+      },
+    });
+    y =
+      (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y;
+    y += 10;
+  }
+
+  // ----- 3. Actual Expenditures (uses of funds) -----
+  doc.setFontSize(12);
+  doc.setFont("helvetica", "bold");
+  doc.text("3. Actual Expenditures", PAGE_MARGIN, y);
   y += 8;
   doc.setFont("helvetica", "normal");
 
   if (data.expenditureRows.length === 0) {
     doc.setFontSize(9);
-    doc.text("No linked expenses yet.", PAGE_MARGIN, y);
+    doc.text("No expenditures recorded.", PAGE_MARGIN, y);
     y += 10;
   } else {
     autoTable(doc, {
       startY: y,
-      head: [["Date", "Budget Item", "Description", "Amount"]],
+      head: [["Date", "Line Item", "Description", "Amount"]],
       body: data.expenditureRows.map((r) => [
         new Date(r.date).toLocaleDateString("en-PH"),
         r.budgetItemName.slice(0, 20) + (r.budgetItemName.length > 20 ? "…" : ""),
@@ -499,20 +552,64 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
     y += 10;
   }
 
-  // ----- Summary -----
+  // ----- 4. Summary (Revenue, Expenditures, Surplus/(Deficit)) -----
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "bold");
+  doc.text("4. Summary", PAGE_MARGIN, y);
+  y += 8;
+  doc.setFont("helvetica", "normal");
+
+  const totalIncomeBudget = data.totalIncomeBudget ?? 0;
+  const totalActualIncome = data.totalActualIncome ?? 0;
+  const revenueVariance = totalActualIncome - totalIncomeBudget;
+  const expenditureVariance = data.totalBudget - data.totalActual;
+  const surplusDeficit = totalActualIncome - data.totalActual;
+
   doc.setFontSize(10);
   doc.setFont("helvetica", "bold");
-  doc.text("Total Budget:", PAGE_MARGIN, y);
-  doc.text(formatCurrency(data.totalBudget), pageW - PAGE_MARGIN - 45, y, { align: "right" });
-  y += 7;
-  doc.text("Total Spent:", PAGE_MARGIN, y);
-  doc.text(formatCurrency(data.totalActual), pageW - PAGE_MARGIN - 45, y, { align: "right" });
-  y += 7;
-  const variance = data.totalBudget - data.totalActual;
-  doc.text("Variance (Remaining):", PAGE_MARGIN, y);
-  const varianceStr =
-    variance >= 0 ? formatCurrency(variance) : `- ${formatCurrency(Math.abs(variance))}`;
-  doc.text(varianceStr, pageW - PAGE_MARGIN - 45, y, { align: "right" });
+  doc.text("Revenue", PAGE_MARGIN, y);
+  y += 6;
+  doc.setFont("helvetica", "normal");
+  doc.text("  Budgeted Revenue", PAGE_MARGIN, y);
+  doc.text(formatCurrency(totalIncomeBudget), pageW - PAGE_MARGIN - 50, y, { align: "right" });
+  y += 6;
+  doc.text("  Actual Revenue", PAGE_MARGIN, y);
+  doc.text(formatCurrency(totalActualIncome), pageW - PAGE_MARGIN - 50, y, { align: "right" });
+  y += 6;
+  doc.text("  Variance", PAGE_MARGIN, y);
+  const revVarStr =
+    revenueVariance >= 0
+      ? `${formatCurrency(revenueVariance)} (Favorable)`
+      : `- ${formatCurrency(Math.abs(revenueVariance))} (Unfavorable)`;
+  doc.text(revVarStr, pageW - PAGE_MARGIN - 50, y, { align: "right" });
+  y += 10;
+
+  doc.setFont("helvetica", "bold");
+  doc.text("Expenditures", PAGE_MARGIN, y);
+  y += 6;
+  doc.setFont("helvetica", "normal");
+  doc.text("  Budgeted Expenditures", PAGE_MARGIN, y);
+  doc.text(formatCurrency(data.totalBudget), pageW - PAGE_MARGIN - 50, y, { align: "right" });
+  y += 6;
+  doc.text("  Actual Expenditures", PAGE_MARGIN, y);
+  doc.text(formatCurrency(data.totalActual), pageW - PAGE_MARGIN - 50, y, { align: "right" });
+  y += 6;
+  doc.text("  Variance", PAGE_MARGIN, y);
+  const expVarStr =
+    expenditureVariance >= 0
+      ? `${formatCurrency(expenditureVariance)} (Favorable)`
+      : `- ${formatCurrency(Math.abs(expenditureVariance))} (Unfavorable)`;
+  doc.text(expVarStr, pageW - PAGE_MARGIN - 50, y, { align: "right" });
+  y += 10;
+
+  doc.setFont("helvetica", "bold");
+  doc.text("Net (Revenue minus Expenditures)", PAGE_MARGIN, y);
+  const netStr =
+    surplusDeficit >= 0 ? formatCurrency(surplusDeficit) : `- ${formatCurrency(Math.abs(surplusDeficit))}`;
+  if (surplusDeficit >= 0) doc.setTextColor(16, 130, 80);
+  else doc.setTextColor(190, 40, 40);
+  doc.text(netStr, pageW - PAGE_MARGIN - 50, y, { align: "right" });
+  doc.setTextColor(0, 0, 0);
   doc.setFont("helvetica", "normal");
 
   // ----- Receipts section: same 2×2 grid as cashflow report -----

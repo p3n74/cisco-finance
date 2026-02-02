@@ -55,13 +55,23 @@ const formatDate = (date: Date | string | null | undefined) => {
   });
 };
 
-// Calculate budget status color
+// Expenditure variance: under budget = favorable, over = unfavorable
 const getBudgetStatus = (estimated: number, actual: number) => {
   if (actual === 0) return { color: "text-muted-foreground", bg: "bg-muted", label: "Not started" };
-  const ratio = actual / estimated;
-  if (ratio <= 0.8) return { color: "text-emerald-600", bg: "bg-emerald-500", label: "Under budget" };
+  const ratio = estimated > 0 ? actual / estimated : 0;
+  if (ratio <= 0.8) return { color: "text-emerald-600", bg: "bg-emerald-500", label: "Favorable" };
   if (ratio <= 1) return { color: "text-amber-600", bg: "bg-amber-500", label: "Near budget" };
-  return { color: "text-rose-600", bg: "bg-rose-500", label: "Over budget" };
+  return { color: "text-rose-600", bg: "bg-rose-500", label: "Unfavorable" };
+};
+
+// Revenue variance: at/over target = favorable, under = unfavorable
+const getIncomeStatus = (estimated: number, actual: number) => {
+  if (estimated === 0) return { color: "text-muted-foreground", bg: "bg-muted", label: "—" };
+  if (actual === 0) return { color: "text-muted-foreground", bg: "bg-muted", label: "Not started" };
+  const ratio = actual / estimated;
+  if (ratio >= 1) return { color: "text-emerald-600", bg: "bg-emerald-500", label: "Favorable" };
+  if (ratio >= 0.8) return { color: "text-amber-600", bg: "bg-amber-500", label: "Near target" };
+  return { color: "text-rose-600", bg: "bg-rose-500", label: "Unfavorable" };
 };
 
 const BUDGET_EDITOR_ROLES = ["VP_FINANCE", "TREASURER", "AUDITOR", "WAYS_AND_MEANS"] as const;
@@ -87,6 +97,7 @@ function BudgetsRoute() {
   const [addingItemToProjectId, setAddingItemToProjectId] = useState<string | null>(null);
   const [isLinkExpenseOpen, setIsLinkExpenseOpen] = useState(false);
   const [linkingToItemId, setLinkingToItemId] = useState<string | null>(null);
+  const [linkingToItemType, setLinkingToItemType] = useState<"expense" | "income">("expense");
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [pdfGeneratingProjectId, setPdfGeneratingProjectId] = useState<string | null>(null);
@@ -104,15 +115,19 @@ function BudgetsRoute() {
   const [itemForm, setItemForm] = useState({
     name: "",
     description: "",
+    type: "expense" as "expense" | "income",
     estimatedAmount: "",
     notes: "",
   });
 
   const [selectedCashflowId, setSelectedCashflowId] = useState("");
 
-  // Unlinked cashflows query (for linking dialog)
+  // Unlinked cashflows query (for linking dialog) — filter by expense vs income
   const unlinkedCashflowsQueryOptions = trpc.budgetItems.getUnlinkedCashflows.queryOptions(
-    { budgetItemId: linkingToItemId ?? "" },
+    {
+      budgetItemId: linkingToItemId ?? "",
+      itemType: linkingToItemType,
+    },
     { enabled: !!linkingToItemId }
   );
   const unlinkedCashflowsQuery = useQuery(unlinkedCashflowsQueryOptions);
@@ -160,7 +175,7 @@ function BudgetsRoute() {
     trpc.budgetItems.create.mutationOptions({
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: projectsQueryOptions.queryKey });
-        setItemForm({ name: "", description: "", estimatedAmount: "", notes: "" });
+        setItemForm({ name: "", description: "", type: "expense", estimatedAmount: "", notes: "" });
         setIsAddItemOpen(false);
         setAddingItemToProjectId(null);
       },
@@ -172,7 +187,7 @@ function BudgetsRoute() {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: projectsQueryOptions.queryKey });
         setEditingItemId(null);
-        setItemForm({ name: "", description: "", estimatedAmount: "", notes: "" });
+        setItemForm({ name: "", description: "", type: "expense", estimatedAmount: "", notes: "" });
       },
     })
   );
@@ -198,8 +213,28 @@ function BudgetsRoute() {
     })
   );
 
+  const linkIncome = useMutation(
+    trpc.budgetItems.linkIncome.mutationOptions({
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: projectsQueryOptions.queryKey });
+        queryClient.invalidateQueries({ queryKey: unlinkedCashflowsQueryOptions.queryKey });
+        setSelectedCashflowId("");
+        setIsLinkExpenseOpen(false);
+        setLinkingToItemId(null);
+      },
+    })
+  );
+
   const unlinkExpense = useMutation(
     trpc.budgetItems.unlinkExpense.mutationOptions({
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: projectsQueryOptions.queryKey });
+      },
+    })
+  );
+
+  const unlinkIncome = useMutation(
+    trpc.budgetItems.unlinkIncome.mutationOptions({
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: projectsQueryOptions.queryKey });
       },
@@ -217,20 +252,23 @@ function BudgetsRoute() {
     return <NotWhitelistedView />;
   }
 
-  // Calculate totals
+  // Calculate totals (expense budget/spent + income budget/collected)
   const totalBudget = projects.reduce((sum, p) => sum + p.totalBudget, 0);
   const totalActual = projects.reduce((sum, p) => sum + p.totalActual, 0);
+  const totalIncomeBudget = projects.reduce((sum, p) => sum + (p.totalIncomeBudget ?? 0), 0);
+  const totalActualIncome = projects.reduce((sum, p) => sum + (p.totalActualIncome ?? 0), 0);
   const plannedProjects = projects.filter((p) => p.status === "planned");
   const completedProjects = projects.filter((p) => p.status === "completed");
 
   const openAddItemDialog = (projectId: string) => {
     setAddingItemToProjectId(projectId);
-    setItemForm({ name: "", description: "", estimatedAmount: "", notes: "" });
+    setItemForm({ name: "", description: "", type: "expense", estimatedAmount: "", notes: "" });
     setIsAddItemOpen(true);
   };
 
-  const openLinkExpenseDialog = (itemId: string) => {
-    setLinkingToItemId(itemId);
+  const openLinkExpenseDialog = (item: { id: string; type: string }) => {
+    setLinkingToItemId(item.id);
+    setLinkingToItemType(item.type === "income" ? "income" : "expense");
     setSelectedCashflowId("");
     setIsLinkExpenseOpen(true);
   };
@@ -245,11 +283,12 @@ function BudgetsRoute() {
     });
   };
 
-  const openEditItemDialog = (item: typeof projects[0]["items"][0]) => {
+  const openEditItemDialog = (item: (typeof projects)[0]["items"][0]) => {
     setEditingItemId(item.id);
     setItemForm({
       name: item.name,
       description: item.description ?? "",
+      type: (item.type === "income" ? "income" : "expense") as "expense" | "income",
       estimatedAmount: item.estimatedAmount.toString(),
       notes: item.notes ?? "",
     });
@@ -276,7 +315,7 @@ function BudgetsRoute() {
       </div>
 
       {/* Stats Overview */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Total Projects</CardDescription>
@@ -291,17 +330,17 @@ function BudgetsRoute() {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Total Budget</CardDescription>
+            <CardDescription>Budgeted Expenditures</CardDescription>
             <CardTitle className="text-2xl">{formatCurrency(totalBudget)}</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-xs text-muted-foreground">Across all projects</p>
+            <p className="text-xs text-muted-foreground">Planned spending</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Total Spent</CardDescription>
+            <CardDescription>Actual Expenditures</CardDescription>
             <CardTitle className={`text-2xl ${totalActual > totalBudget ? "text-rose-500" : "text-emerald-500"}`}>
               {formatCurrency(totalActual)}
             </CardTitle>
@@ -315,18 +354,33 @@ function BudgetsRoute() {
 
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Remaining</CardDescription>
-            <CardTitle className={`text-2xl ${totalBudget - totalActual < 0 ? "text-rose-500" : "text-foreground"}`}>
-              {formatCurrency(totalBudget - totalActual)}
+            <CardDescription>Budgeted Revenue</CardDescription>
+            <CardTitle className="text-2xl">{formatCurrency(totalIncomeBudget)}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-muted-foreground">Expected income (fees, donations)</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Actual Revenue</CardDescription>
+            <CardTitle className="text-2xl text-emerald-600">{formatCurrency(totalActualIncome)}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-muted-foreground">Collections to date</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Net</CardDescription>
+            <CardTitle className={`text-2xl ${totalActualIncome - totalActual < 0 ? "text-rose-500" : "text-emerald-600"}`}>
+              {totalActualIncome - totalActual < 0 ? `-${formatCurrency(Math.abs(totalActualIncome - totalActual))}` : formatCurrency(totalActualIncome - totalActual)}
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className={`h-2 rounded-full transition-all ${totalActual > totalBudget ? "bg-rose-500" : "bg-emerald-500"}`}
-                style={{ width: `${Math.min((totalActual / totalBudget) * 100, 100) || 0}%` }}
-              />
-            </div>
+            <p className="text-xs text-muted-foreground">Revenue minus Expenditures</p>
           </CardContent>
         </Card>
       </div>
@@ -352,9 +406,11 @@ function BudgetsRoute() {
         ) : (
           projects.map((project) => {
             const isExpanded = expandedProjectId === project.id;
+            const totalIncomeBudgetP = project.totalIncomeBudget ?? 0;
+            const totalActualIncomeP = project.totalActualIncome ?? 0;
             const status = getBudgetStatus(project.totalBudget, project.totalActual);
-            const progressPercent = project.totalBudget > 0 
-              ? Math.min((project.totalActual / project.totalBudget) * 100, 100) 
+            const progressPercent = project.totalBudget > 0
+              ? Math.min((project.totalActual / project.totalBudget) * 100, 100)
               : 0;
 
             return (
@@ -384,13 +440,21 @@ function BudgetsRoute() {
                     </div>
                     <div className="flex items-center gap-4">
                       <div className="text-right">
-                        <p className="text-sm font-medium">{formatCurrency(project.totalActual)} / {formatCurrency(project.totalBudget)}</p>
+                        <p className="text-sm font-medium">
+                          Expenditures {formatCurrency(project.totalActual)} / {formatCurrency(project.totalBudget)}
+                          {(totalIncomeBudgetP > 0 || totalActualIncomeP > 0) && (
+                            <span className="ml-2 text-emerald-600">
+                              • Revenue {formatCurrency(totalActualIncomeP)}
+                              {totalIncomeBudgetP > 0 ? ` / ${formatCurrency(totalIncomeBudgetP)}` : ""}
+                            </span>
+                          )}
+                        </p>
                         <p className={`text-xs ${status.color}`}>{status.label}</p>
                       </div>
                       <span className="text-muted-foreground">{isExpanded ? "▲" : "▼"}</span>
                     </div>
                   </div>
-                  {/* Progress bar */}
+                  {/* Progress bar (expense) */}
                   <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-muted">
                     <div
                       className={`h-2 rounded-full transition-all ${status.bg}`}
@@ -471,15 +535,16 @@ function BudgetsRoute() {
                     {/* Budget Items Table */}
                     {project.items.length === 0 ? (
                       <p className="py-4 text-center text-sm text-muted-foreground">
-                        No budget items yet. Add items to track planned expenses.
+                        No budget items yet. Add budgeted expenditure or revenue line items.
                       </p>
                     ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm">
                           <thead className="border-y bg-muted/30 text-xs text-muted-foreground">
                             <tr>
-                              <th className="px-4 py-2 text-left font-medium">Item</th>
-                              <th className="px-4 py-2 text-right font-medium">Estimated</th>
+                              <th className="px-4 py-2 text-left font-medium">Line Item</th>
+                              <th className="px-4 py-2 text-left font-medium">Type</th>
+                              <th className="px-4 py-2 text-right font-medium">Budgeted</th>
                               <th className="px-4 py-2 text-right font-medium">Actual</th>
                               <th className="px-4 py-2 text-right font-medium">Variance</th>
                               <th className="px-4 py-2 text-left font-medium">Status</th>
@@ -488,8 +553,13 @@ function BudgetsRoute() {
                           </thead>
                           <tbody>
                             {project.items.map((item) => {
-                              const variance = item.estimatedAmount - item.actualAmount;
-                              const itemStatus = getBudgetStatus(item.estimatedAmount, item.actualAmount);
+                              const isIncome = item.type === "income";
+                              const variance = isIncome
+                                ? item.actualAmount - item.estimatedAmount
+                                : item.estimatedAmount - item.actualAmount;
+                              const itemStatus = isIncome
+                                ? getIncomeStatus(item.estimatedAmount, item.actualAmount)
+                                : getBudgetStatus(item.estimatedAmount, item.actualAmount);
 
                               return (
                                 <tr key={item.id} className="border-b last:border-0">
@@ -503,7 +573,7 @@ function BudgetsRoute() {
                                       <div className="mt-2 space-y-1">
                                         {item.expenses.map((exp) => (
                                           <div key={exp.id} className="flex items-center gap-2 text-xs">
-                                            <span className="text-emerald-600">↳</span>
+                                            <span className="text-rose-500">↳</span>
                                             <span className="text-muted-foreground">
                                               {formatDate(exp.cashflowEntry.date)} — {exp.cashflowEntry.description}
                                             </span>
@@ -511,23 +581,63 @@ function BudgetsRoute() {
                                               {formatCurrency(Math.abs(exp.cashflowEntry.amount))}
                                             </span>
                                             {canEditBudgets && (
-                                            <button
-                                              type="button"
-                                              className="text-rose-500 hover:text-rose-700"
-                                              onClick={() => unlinkExpense.mutate({ id: exp.id })}
-                                            >
-                                              ✕
-                                            </button>
+                                              <button
+                                                type="button"
+                                                className="text-rose-500 hover:text-rose-700"
+                                                onClick={() => unlinkExpense.mutate({ id: exp.id })}
+                                              >
+                                                ✕
+                                              </button>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                    {/* Linked income */}
+                                    {item.incomes?.length > 0 && (
+                                      <div className="mt-2 space-y-1">
+                                        {item.incomes.map((inc) => (
+                                          <div key={inc.id} className="flex items-center gap-2 text-xs">
+                                            <span className="text-emerald-600">↳</span>
+                                            <span className="text-muted-foreground">
+                                              {formatDate(inc.cashflowEntry.date)} — {inc.cashflowEntry.description}
+                                            </span>
+                                            <span className="font-medium text-emerald-600">
+                                              {formatCurrency(inc.cashflowEntry.amount)}
+                                            </span>
+                                            {canEditBudgets && (
+                                              <button
+                                                type="button"
+                                                className="text-rose-500 hover:text-rose-700"
+                                                onClick={() => unlinkIncome.mutate({ id: inc.id })}
+                                              >
+                                                ✕
+                                              </button>
                                             )}
                                           </div>
                                         ))}
                                       </div>
                                     )}
                                   </td>
+                                  <td className="px-4 py-3">
+                                    <span
+                                      className={
+                                        isIncome
+                                          ? "rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-600"
+                                          : "rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
+                                      }
+                                    >
+                                      {isIncome ? "Revenue" : "Expenditure"}
+                                    </span>
+                                  </td>
                                   <td className="px-4 py-3 text-right font-medium">
                                     {formatCurrency(item.estimatedAmount)}
                                   </td>
-                                  <td className={`px-4 py-3 text-right font-medium ${item.actualAmount > 0 ? "text-rose-500" : "text-muted-foreground"}`}>
+                                  <td
+                                    className={`px-4 py-3 text-right font-medium ${
+                                      isIncome ? (item.actualAmount > 0 ? "text-emerald-600" : "text-muted-foreground") : item.actualAmount > 0 ? "text-rose-500" : "text-muted-foreground"
+                                    }`}
+                                  >
                                     {formatCurrency(item.actualAmount)}
                                   </td>
                                   <td className={`px-4 py-3 text-right font-medium ${variance >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
@@ -539,8 +649,8 @@ function BudgetsRoute() {
                                   {canEditBudgets && (
                                     <td className="px-4 py-3 text-right">
                                       <div className="flex justify-end gap-1">
-                                        <Button size="xs" variant="ghost" onClick={() => openLinkExpenseDialog(item.id)}>
-                                          Link
+                                        <Button size="xs" variant="ghost" onClick={() => openLinkExpenseDialog(item)}>
+                                          {isIncome ? "Link revenue" : "Link"}
                                         </Button>
                                         <Button size="xs" variant="ghost" onClick={() => openEditItemDialog(item)}>
                                           Edit
@@ -552,6 +662,10 @@ function BudgetsRoute() {
                                           onClick={() => {
                                             if (item.expenseCount > 0) {
                                               toast.error("Cannot delete item with linked expenses. Unlink all expenses first.");
+                                              return;
+                                            }
+                                            if ((item.incomeCount ?? 0) > 0) {
+                                              toast.error("Cannot delete item with linked income. Unlink all income first.");
                                               return;
                                             }
                                             setConfirmDeleteItemId(item.id);
@@ -569,11 +683,23 @@ function BudgetsRoute() {
                           <tfoot className="border-t bg-muted/30 font-medium">
                             <tr>
                               <td className="px-4 py-2">Total</td>
-                              <td className="px-4 py-2 text-right">{formatCurrency(project.totalBudget)}</td>
-                              <td className="px-4 py-2 text-right text-rose-500">{formatCurrency(project.totalActual)}</td>
-                              <td className={`px-4 py-2 text-right ${project.totalBudget - project.totalActual >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
-                                {project.totalBudget - project.totalActual >= 0 ? "+" : ""}
-                                {formatCurrency(project.totalBudget - project.totalActual)}
+                              <td className="px-4 py-2" />
+                              <td className="px-4 py-2 text-right">
+                                {formatCurrency(project.totalBudget)}
+                                {(project.totalIncomeBudget ?? 0) > 0 && (
+                                  <span className="ml-1 text-emerald-600">+ {formatCurrency(project.totalIncomeBudget ?? 0)} revenue</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-2 text-right">
+                                <span className="text-rose-500">{formatCurrency(project.totalActual)}</span>
+                                {(project.totalActualIncome ?? 0) > 0 && (
+                                  <span className="ml-1 text-emerald-600">+ {formatCurrency(project.totalActualIncome ?? 0)}</span>
+                                )}
+                              </td>
+                              <td className={`px-4 py-2 text-right font-medium ${((project.totalActualIncome ?? 0) - project.totalActual) < 0 ? "text-rose-500" : "text-emerald-600"}`}>
+                                {((project.totalActualIncome ?? 0) - project.totalActual) >= 0
+                                  ? formatCurrency((project.totalActualIncome ?? 0) - project.totalActual)
+                                  : `-${formatCurrency(Math.abs((project.totalActualIncome ?? 0) - project.totalActual))}`}
                               </td>
                               <td colSpan={canEditBudgets ? 2 : 1} />
                             </tr>
@@ -748,7 +874,7 @@ function BudgetsRoute() {
           <DialogHeader>
             <DialogTitle>Add Budget Item</DialogTitle>
             <DialogDescription>
-              Add a planned expense to this project.
+              Add a budgeted expenditure or budgeted revenue line item (e.g. fees, donations).
             </DialogDescription>
           </DialogHeader>
           <form
@@ -765,16 +891,42 @@ function BudgetsRoute() {
                 budgetProjectId: addingItemToProjectId,
                 name: itemForm.name,
                 description: itemForm.description || undefined,
+                type: itemForm.type,
                 estimatedAmount: itemForm.estimatedAmount,
                 notes: itemForm.notes || undefined,
               });
             }}
           >
             <div className="space-y-2">
+              <Label>Type</Label>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="item-type"
+                    checked={itemForm.type === "expense"}
+                    onChange={() => setItemForm({ ...itemForm, type: "expense" })}
+                    className="rounded-full border-input"
+                  />
+                  <span>Expenditure</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="item-type"
+                    checked={itemForm.type === "income"}
+                    onChange={() => setItemForm({ ...itemForm, type: "income" })}
+                    className="rounded-full border-input"
+                  />
+                  <span>Revenue (fees, donations, etc.)</span>
+                </label>
+              </div>
+            </div>
+            <div className="space-y-2">
               <Label htmlFor="item-name">Item Name</Label>
               <Input
                 id="item-name"
-                placeholder="e.g., Venue Rental"
+                placeholder={itemForm.type === "income" ? "e.g., Registration fees" : "e.g., Venue rental"}
                 value={itemForm.name}
                 onChange={(e) => setItemForm({ ...itemForm, name: e.target.value })}
                 required
@@ -790,7 +942,7 @@ function BudgetsRoute() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="item-amount">Estimated Amount</Label>
+              <Label htmlFor="item-amount">{itemForm.type === "income" ? "Budgeted amount" : "Budgeted amount"}</Label>
               <Input
                 id="item-amount"
                 type="number"
@@ -845,11 +997,37 @@ function BudgetsRoute() {
                 id: editingItemId,
                 name: itemForm.name,
                 description: itemForm.description || undefined,
+                type: itemForm.type,
                 estimatedAmount: itemForm.estimatedAmount,
                 notes: itemForm.notes || undefined,
               });
             }}
           >
+            <div className="space-y-2">
+              <Label>Type</Label>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="edit-item-type"
+                    checked={itemForm.type === "expense"}
+                    onChange={() => setItemForm({ ...itemForm, type: "expense" })}
+                    className="rounded-full border-input"
+                  />
+                  <span>Expenditure</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="edit-item-type"
+                    checked={itemForm.type === "income"}
+                    onChange={() => setItemForm({ ...itemForm, type: "income" })}
+                    className="rounded-full border-input"
+                  />
+                  <span>Revenue</span>
+                </label>
+              </div>
+            </div>
             <div className="space-y-2">
               <Label htmlFor="edit-item-name">Item Name</Label>
               <Input
@@ -868,7 +1046,7 @@ function BudgetsRoute() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="edit-item-amount">Estimated Amount</Label>
+              <Label htmlFor="edit-item-amount">Budgeted amount</Label>
               <Input
                 id="edit-item-amount"
                 type="number"
@@ -900,18 +1078,20 @@ function BudgetsRoute() {
         </DialogPopup>
       </Dialog>
 
-      {/* Link Expense Dialog */}
+      {/* Link Expense / Income Dialog */}
       <Dialog open={isLinkExpenseOpen} onOpenChange={(open) => { if (!open) { setIsLinkExpenseOpen(false); setLinkingToItemId(null); } }}>
         <DialogPopup>
           <DialogHeader>
-            <DialogTitle>Link Expense</DialogTitle>
+            <DialogTitle>{linkingToItemType === "income" ? "Link Revenue" : "Link Expenditure"}</DialogTitle>
             <DialogDescription>
-              Link a verified cashflow entry to this budget item.
+              {linkingToItemType === "income"
+                ? "Link a verified inflow (positive) cashflow entry to this revenue line item."
+                : "Link a verified cashflow entry to this expenditure line item."}
             </DialogDescription>
           </DialogHeader>
           <div className="mt-4 space-y-4">
             <div className="space-y-2">
-              <Label>Select Cashflow Entry</Label>
+              <Label>{linkingToItemType === "income" ? "Select inflow (positive) entry" : "Select Cashflow Entry"}</Label>
               <div className="border border-border/60 rounded-xl overflow-hidden bg-background/40 backdrop-blur-sm">
                 <div className="max-h-[280px] overflow-y-auto custom-scrollbar">
                   <table className="w-full text-left text-xs border-collapse">
@@ -972,15 +1152,26 @@ function BudgetsRoute() {
               <Button
                 onClick={() => {
                   if (linkingToItemId && selectedCashflowId) {
-                    linkExpense.mutate({
-                      budgetItemId: linkingToItemId,
-                      cashflowEntryId: selectedCashflowId,
-                    });
+                    if (linkingToItemType === "income") {
+                      linkIncome.mutate({
+                        budgetItemId: linkingToItemId,
+                        cashflowEntryId: selectedCashflowId,
+                      });
+                    } else {
+                      linkExpense.mutate({
+                        budgetItemId: linkingToItemId,
+                        cashflowEntryId: selectedCashflowId,
+                      });
+                    }
                   }
                 }}
-                disabled={!selectedCashflowId || linkExpense.isPending}
+                disabled={!selectedCashflowId || linkExpense.isPending || linkIncome.isPending}
               >
-                {linkExpense.isPending ? "Linking..." : "Link Expense"}
+                {linkExpense.isPending || linkIncome.isPending
+                  ? "Linking..."
+                  : linkingToItemType === "income"
+                    ? "Link Revenue"
+                    : "Link Expenditure"}
               </Button>
             </DialogFooter>
           </div>

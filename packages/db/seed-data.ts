@@ -309,6 +309,7 @@ async function seedBudgetItems(projectIds: string[]): Promise<string[]> {
           budgetProjectId: projectId,
           name: pick(BUDGET_ITEM_NAMES),
           description: Math.random() < 0.4 ? "Seed budget line item" : null,
+          type: "expense",
           estimatedAmount: randomAmount(500, 15000, false),
           notes: Math.random() < 0.3 ? "Estimated" : null,
         },
