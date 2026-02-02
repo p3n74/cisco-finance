@@ -318,7 +318,8 @@ function RouteComponent() {
   const budgetedExpenditures = budgetOverview?.totalBudget ?? 0;
   const actualExpenditures = budgetOverview?.totalActual ?? 0;
   const remainingBudget = Math.max(0, budgetedExpenditures - actualExpenditures);
-  const projectedCashflow = netCashflow - remainingBudget;
+  const reservedForPlanned = budgetOverview?.reservedForPlanned ?? 0;
+  const projectedCashflow = netCashflow - reservedForPlanned;
   
   const unverifiedNet = unverifiedEntries.reduce((sum, e) => sum + e.amount, 0);
   const netMovement = netCashflow + unverifiedNet;
@@ -570,9 +571,9 @@ function RouteComponent() {
           </CardHeader>
           <CardContent>
             <p className="text-xs text-muted-foreground">
-              Net minus remaining budgeted expenditures
-              {budgetOverview && remainingBudget > 0
-                ? ` (${formatCurrency(remainingBudget)} remaining)`
+              Net minus reserved for planned events
+              {budgetOverview && reservedForPlanned > 0
+                ? ` (${formatCurrency(reservedForPlanned)} reserved)`
                 : ""}
             </p>
           </CardContent>
