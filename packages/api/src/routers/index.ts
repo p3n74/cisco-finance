@@ -1704,6 +1704,24 @@ export const appRouter = router({
       const plannedProjects = projects.filter((p) => p.status === "planned");
       const completedProjects = projects.filter((p) => p.status === "completed");
 
+      // Reserved for projected cashflow: only planned events, and only remaining budget
+      // (planned - actual) so we don't double-count: actual spend is already in net cashflow
+      const reservedForPlanned = plannedProjects.reduce((sum, p) => {
+        const budget = p.items
+          .filter((i) => i.type === "expense")
+          .reduce((iSum, item) => iSum + Number(item.estimatedAmount), 0);
+        const actual = p.items.reduce(
+          (iSum, item) =>
+            iSum +
+            item.expenses.reduce(
+              (eSum, exp) => eSum + Math.abs(Number(exp.cashflowEntry.amount)),
+              0
+            ),
+          0
+        );
+        return sum + Math.max(0, budget - actual);
+      }, 0);
+
       const totalBudget = projects.reduce(
         (sum, p) =>
           sum +
@@ -1771,6 +1789,7 @@ export const appRouter = router({
         totalIncomeBudget,
         totalActual,
         totalActualIncome,
+        reservedForPlanned,
         upcomingEvents,
       };
     }),
