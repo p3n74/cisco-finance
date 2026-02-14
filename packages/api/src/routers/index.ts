@@ -2591,6 +2591,67 @@ export const appRouter = router({
 
         return entry;
       }),
+    update: cashflowEditorProcedure
+      .input(
+        z.object({
+          id: z.string().min(1),
+          description: z.string().min(2),
+          category: z.string().min(2),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const entry = await ctx.prisma.cashflowEntry.findUnique({
+          where: { id: input.id },
+          select: { id: true, accountEntryId: true },
+        });
+        if (!entry) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Cashflow entry not found." });
+        }
+
+        await ctx.prisma.cashflowEntry.update({
+          where: { id: input.id },
+          data: {
+            description: input.description,
+            category: input.category,
+          },
+        });
+
+        // Keep linked account entry (RBA) in sync: update its description to match
+        if (entry.accountEntryId) {
+          await ctx.prisma.accountEntry.updateMany({
+            where: { id: entry.accountEntryId },
+            data: { description: input.description },
+          });
+          ctx.ws?.emitToUser(ctx.session.user.id, {
+            event: WS_EVENTS.ACCOUNT_ENTRY_UPDATED,
+            action: "updated",
+            entityId: entry.accountEntryId,
+          });
+        }
+
+        await logActivity(
+          ctx.prisma,
+          ctx.session.user.id,
+          "updated",
+          "cashflow_entry",
+          `updated transaction to "${input.description}"`,
+          input.id,
+          { description: input.description, category: input.category },
+          ctx.ws
+        );
+
+        ctx.ws?.emitToUser(ctx.session.user.id, {
+          event: WS_EVENTS.CASHFLOW_UPDATED,
+          action: "updated",
+          entityId: input.id,
+        });
+        ctx.ws?.emitToUser(ctx.session.user.id, {
+          event: WS_EVENTS.STATS_UPDATED,
+          action: "updated",
+        });
+
+        return { updated: true };
+      }),
     archive: cashflowEditorProcedure
       .input(z.object({ id: z.string().min(1) }))
       .mutation(async ({ ctx, input }) => {
