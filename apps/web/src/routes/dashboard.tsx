@@ -307,6 +307,7 @@ function RouteComponent() {
   type TableEntry = (typeof tableItems)[number];
   const [attachingToEntry, setAttachingToEntry] = useState<TableEntry | null>(null);
   const [viewingEntry, setViewingEntry] = useState<TableEntry | null>(null);
+  const [detailEntry, setDetailEntry] = useState<TableEntry | null>(null);
   useEffect(() => {
     if (!attachingToEntryId) setAttachingToEntry(null);
   }, [attachingToEntryId]);
@@ -804,7 +805,7 @@ function RouteComponent() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle>Cashflow Activity</CardTitle>
-              <CardDescription>Your verified transactions</CardDescription>
+              <CardDescription>Your verified transactions. Click a row for details.</CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <TooltipProvider
@@ -1024,8 +1025,17 @@ function RouteComponent() {
                   return (
                     <tr
                       key={entry.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setDetailEntry(entry)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setDetailEntry(entry);
+                        }
+                      }}
                       className={cn(
-                        "border-b border-border/30 last:border-0 transition-colors hover:bg-muted/20",
+                        "border-b border-border/30 last:border-0 transition-colors hover:bg-muted/20 cursor-pointer",
                         hasAccountEntry && "bg-emerald-500/5",
                         noReceipt && "bg-red-500/5"
                       )}
@@ -1082,7 +1092,8 @@ function RouteComponent() {
                               <Button
                                 size="xs"
                                 variant="ghost"
-                                onClick={() => {
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   setViewingReceiptsEntryId(entry.id);
                                   setViewingEntry(entry);
                                   setViewingReceiptIndex(0);
@@ -1096,7 +1107,8 @@ function RouteComponent() {
                                 <Button
                                   size="xs"
                                   variant="ghost"
-                                  onClick={() => {
+                                  onClick={(e) => {
+                                    e.stopPropagation();
                                     setAttachingToEntryId(entry.id);
                                     setAttachingToEntry(entry);
                                   }}
@@ -1106,7 +1118,8 @@ function RouteComponent() {
                                 <Button
                                   size="xs"
                                   variant="ghost"
-                                  onClick={() => {
+                                  onClick={(e) => {
+                                    e.stopPropagation();
                                     setEditingCashflowEntry(entry);
                                     setEditForm({
                                       description: entry.description,
@@ -1133,7 +1146,8 @@ function RouteComponent() {
                               <Button
                                 size="xs"
                                 variant="outline"
-                                onClick={() => {
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   setEditingLineItemsEntry(entry);
                                   void loadLineItems(entry.id);
                                 }}
@@ -1153,6 +1167,206 @@ function RouteComponent() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Entry detail popup — click a row to open */}
+      <Dialog open={!!detailEntry} onOpenChange={(open) => !open && setDetailEntry(null)}>
+        <DialogPopup className="max-w-xl">
+          {detailEntry && (
+            <>
+              <DialogHeader className="text-left">
+                <DialogTitle className="pr-8 text-lg leading-tight">
+                  {detailEntry.description}
+                </DialogTitle>
+                <DialogDescription className="text-left">
+                  <span
+                    className={cn(
+                      "font-semibold tabular-nums",
+                      detailEntry.amount >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
+                    )}
+                  >
+                    {formatCurrency(detailEntry.amount)}
+                  </span>
+                  <span className="text-muted-foreground ml-2">
+                    · {new Date(detailEntry.date).toLocaleDateString("en-PH", { weekday: "short", year: "numeric", month: "short", day: "numeric" })}
+                  </span>
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="mt-5 space-y-4">
+                {/* Overview */}
+                <div className="rounded-xl border border-border/60 bg-muted/20 p-4">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Overview
+                  </p>
+                  <dl className="grid gap-2 text-sm">
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-muted-foreground">Category</dt>
+                      <dd>
+                        <span className="rounded-md bg-muted px-2 py-0.5 font-medium">
+                          {detailEntry.category}
+                        </span>
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-muted-foreground">Account</dt>
+                      <dd className="font-medium">
+                        {detailEntry.accountEntry?.account ?? "—"}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-muted-foreground">Status</dt>
+                      <dd>
+                        {detailEntry.receiptsCount === 0 ? (
+                          <span className="inline-flex items-center rounded-full bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-600 dark:text-red-400">
+                            No receipt
+                          </span>
+                        ) : detailEntry.accountEntryId ? (
+                          <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                            Verified
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                            Manual entry
+                          </span>
+                        )}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-muted-foreground">Entry ID</dt>
+                      <dd className="font-mono text-xs text-muted-foreground">
+                        #{detailEntry.id.slice(0, 8)}
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
+
+                {/* Source (linked account entry) */}
+                {detailEntry.accountEntry && (
+                  <div className="rounded-xl border border-border/60 bg-emerald-500/5 p-4">
+                    <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+                      Linked account transaction
+                    </p>
+                    <p className="text-sm">
+                      <span className="font-medium">{detailEntry.accountEntry.account}</span>
+                      <span className="text-muted-foreground"> — </span>
+                      {detailEntry.accountEntry.description}
+                    </p>
+                  </div>
+                )}
+
+                {/* Line items */}
+                {Array.isArray(detailEntry.lineItems) && detailEntry.lineItems.length > 0 && (
+                  <div className="rounded-xl border border-border/60 bg-muted/20 p-4">
+                    <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Breakdown ({detailEntry.lineItems.length} item{detailEntry.lineItems.length === 1 ? "" : "s"})
+                    </p>
+                    <div className="space-y-2">
+                      {detailEntry.lineItems.map((item) => (
+                        <div
+                          key={item.id}
+                          className="flex items-center justify-between gap-4 rounded-lg border border-border/40 bg-background/60 px-3 py-2 text-sm"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium truncate">{item.description}</p>
+                            <p className="text-xs text-muted-foreground">{item.category}</p>
+                          </div>
+                          <span className={cn(
+                            "shrink-0 tabular-nums font-medium",
+                            item.amount >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
+                          )}>
+                            {formatCurrency(item.amount)}
+                          </span>
+                        </div>
+                      ))}
+                      <div className="flex justify-between border-t border-border/60 pt-2 text-sm font-semibold">
+                        <span>Total</span>
+                        <span className={cn(
+                          "tabular-nums",
+                          detailEntry.amount >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
+                        )}>
+                          {formatCurrency(detailEntry.amount)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Receipts */}
+                <div className="rounded-xl border border-border/60 bg-muted/20 p-4">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Receipts
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm text-muted-foreground">
+                      {detailEntry.receiptsCount} file{detailEntry.receiptsCount === 1 ? "" : "s"} attached
+                    </span>
+                    {detailEntry.receiptsCount > 0 && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setDetailEntry(null);
+                          setViewingReceiptsEntryId(detailEntry.id);
+                          setViewingEntry(detailEntry);
+                          setViewingReceiptIndex(0);
+                        }}
+                      >
+                        View receipts
+                      </Button>
+                    )}
+                    {canEditDashboard && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setDetailEntry(null);
+                          setAttachingToEntryId(detailEntry.id);
+                          setAttachingToEntry(detailEntry);
+                        }}
+                      >
+                        {detailEntry.receiptsCount > 0 ? "Attach more" : "Attach receipt"}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <DialogFooter className="mt-6 flex-wrap gap-2">
+                <DialogClose asChild>
+                  <Button variant="outline">Close</Button>
+                </DialogClose>
+                {canEditDashboard && (
+                  <>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setDetailEntry(null);
+                        setEditingCashflowEntry(detailEntry);
+                        setEditForm({
+                          description: detailEntry.description,
+                          category: detailEntry.category,
+                        });
+                      }}
+                    >
+                      Edit
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setDetailEntry(null);
+                        setEditingLineItemsEntry(detailEntry);
+                        void loadLineItems(detailEntry.id);
+                      }}
+                    >
+                      Breakdown
+                    </Button>
+                  </>
+                )}
+              </DialogFooter>
+            </>
+          )}
+        </DialogPopup>
+      </Dialog>
 
       {/* Full-page loading overlay when order/search/filter changes */}
       {isTableLoading && (
