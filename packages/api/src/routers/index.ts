@@ -10,8 +10,8 @@ import { sendEmail } from "../services/email";
 import { checkRateLimit } from "../services/rate-limit";
 import { env } from "@cisco-finance/env/server";
 
-/** Max receipt image size: 5MB decoded. Base64 is ~4/3 larger, so ~6.67MB; use 7MB for the string limit. */
-const MAX_RECEIPT_IMAGE_BASE64_LENGTH = 7 * 1024 * 1024;
+/** Max receipt image size: 625 KB decoded (5MB/8 for batch response limit). Base64 is ~4/3 larger. */
+const MAX_RECEIPT_IMAGE_BASE64_LENGTH = Math.ceil((625 * 1024) * (4 / 3));
 
 const ACCOUNT_OPTIONS = ["GCash", "GoTyme", "Cash", "BPI"] as const;
 
@@ -214,7 +214,7 @@ export const appRouter = router({
           imageData: z
             .string()
             .min(1, "Please upload a receipt image")
-            .max(MAX_RECEIPT_IMAGE_BASE64_LENGTH, "Image must be 5MB or smaller"),
+            .max(MAX_RECEIPT_IMAGE_BASE64_LENGTH, "Image must be 625 KB or smaller"),
           imageType: z.string().min(1, "Image type is required"),
           notes: z.string().optional(),
           // Reimbursement fields
@@ -691,7 +691,10 @@ export const appRouter = router({
         z.object({
           submitterName: z.string().min(2, "Name must be at least 2 characters"),
           purpose: z.string().min(5, "Please describe what this receipt is for"),
-          imageData: z.string().min(1, "Please upload a receipt image"),
+          imageData: z
+            .string()
+            .min(1, "Please upload a receipt image")
+            .max(MAX_RECEIPT_IMAGE_BASE64_LENGTH, "Image must be 625 KB or smaller"),
           imageType: z.string().min(1, "Image type is required"),
           notes: z.string().optional(),
           cashflowEntryId: z.string(),
@@ -2668,7 +2671,6 @@ export const appRouter = router({
                 id: true,
                 submitterName: true,
                 purpose: true,
-                imageData: true,
                 imageType: true,
                 createdAt: true,
               },
@@ -2720,7 +2722,7 @@ export const appRouter = router({
           amount: number;
           receipt: {
             id: string;
-            imageData: string;
+            imageData: string | null;
             imageType: string | null;
             submitterName: string;
             purpose: string;
@@ -2736,7 +2738,7 @@ export const appRouter = router({
               amount: Number(entry.amount),
               receipt: {
                 id: sub.id,
-                imageData: sub.imageData,
+                imageData: null,
                 imageType: sub.imageType,
                 submitterName: sub.submitterName,
                 purpose: sub.purpose,
@@ -2750,6 +2752,25 @@ export const appRouter = router({
           startingCashFlow,
           endingCashFlow,
         };
+      }),
+
+    /** Fetch receipt images by IDs in batches (max 8 per request to stay under 5MB). Used after getReportData/getProjectReportData. */
+    getReportReceiptImages: whitelistedProcedure
+      .input(
+        z.object({
+          receiptIds: z.array(z.string()).min(1).max(8),
+        })
+      )
+      .query(async ({ ctx, input }) => {
+        const submissions = await ctx.prisma.receiptSubmission.findMany({
+          where: { id: { in: input.receiptIds } },
+          select: { id: true, imageData: true, imageType: true },
+        });
+        return submissions.map((s) => ({
+          id: s.id,
+          imageData: s.imageData,
+          imageType: s.imageType,
+        }));
       }),
 
     // Project report: project info, budget plan (expenses + income), expenditures, collected income, receipts in order
@@ -2773,7 +2794,6 @@ export const appRouter = router({
                             id: true,
                             submitterName: true,
                             purpose: true,
-                            imageData: true,
                             imageType: true,
                             createdAt: true,
                           },
@@ -2797,7 +2817,6 @@ export const appRouter = router({
                             id: true,
                             submitterName: true,
                             purpose: true,
-                            imageData: true,
                             imageType: true,
                             createdAt: true,
                           },
@@ -2874,7 +2893,7 @@ export const appRouter = router({
           amount: number;
           receipt: {
             id: string;
-            imageData: string;
+            imageData: string | null;
             imageType: string | null;
             submitterName: string;
             purpose: string;
@@ -2951,7 +2970,7 @@ export const appRouter = router({
               amount: Math.abs(Number(entry.amount)),
               receipt: {
                 id: sub.id,
-                imageData: sub.imageData,
+                imageData: null,
                 imageType: sub.imageType,
                 submitterName: sub.submitterName,
                 purpose: sub.purpose,
@@ -2968,7 +2987,7 @@ export const appRouter = router({
               amount: Number(entry.amount),
               receipt: {
                 id: sub.id,
-                imageData: sub.imageData,
+                imageData: null,
                 imageType: sub.imageType,
                 submitterName: sub.submitterName,
                 purpose: sub.purpose,

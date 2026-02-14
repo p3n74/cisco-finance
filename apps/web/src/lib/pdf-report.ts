@@ -26,7 +26,7 @@ export type ReportReceiptRow = {
   amount: number;
   receipt: {
     id: string;
-    imageData: string;
+    imageData: string | null;
     imageType: string | null;
     submitterName: string;
     purpose: string;
@@ -235,14 +235,17 @@ export function buildPdfReport(
   doc.setFont("helvetica", "normal");
 
   // ----- Receipts section: 4 per page in 2×2 grid (best for readability) -----
-  if (data.receiptsInOrder.length > 0) {
+  const receiptsWithImages = data.receiptsInOrder.filter(
+    (row): row is typeof row & { receipt: { imageData: string } } => row.receipt.imageData != null
+  );
+  if (receiptsWithImages.length > 0) {
     doc.addPage(); // Start receipts on a new page so they don't overlap the summary
-    const totalReceiptPages = Math.ceil(data.receiptsInOrder.length / RECEIPTS_PER_PAGE);
+    const totalReceiptPages = Math.ceil(receiptsWithImages.length / RECEIPTS_PER_PAGE);
     const cols = 2;
     const rows = 2;
     const receiptStartY = 22;
 
-    data.receiptsInOrder.forEach((row, index) => {
+    receiptsWithImages.forEach((row, index) => {
       const pageIndex = Math.floor(index / RECEIPTS_PER_PAGE);
       const indexOnPage = index % RECEIPTS_PER_PAGE;
       const col = indexOnPage % cols;
@@ -264,7 +267,7 @@ export function buildPdfReport(
         doc.setFont("helvetica", "normal");
         doc.setFontSize(9);
         doc.text(
-          `Page ${pageIndex + 1} of ${totalReceiptPages} · ${data.receiptsInOrder.length} receipt(s) in order by transaction`,
+          `Page ${pageIndex + 1} of ${totalReceiptPages} · ${receiptsWithImages.length} receipt(s) in order by transaction`,
           pageW - PAGE_MARGIN,
           14,
           { align: "right" }
@@ -690,13 +693,16 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
   doc.setFont("helvetica", "normal");
 
   // ----- Receipts section: same 2×2 grid as cashflow report -----
-  if (data.receiptsInOrder.length > 0) {
+  const projectReceiptsWithImages = data.receiptsInOrder.filter(
+    (row): row is typeof row & { receipt: { imageData: string } } => row.receipt.imageData != null
+  );
+  if (projectReceiptsWithImages.length > 0) {
     doc.addPage();
-    const totalReceiptPages = Math.ceil(data.receiptsInOrder.length / RECEIPTS_PER_PAGE);
+    const totalReceiptPages = Math.ceil(projectReceiptsWithImages.length / RECEIPTS_PER_PAGE);
     const cols = 2;
     const receiptStartY = 22;
 
-    data.receiptsInOrder.forEach((row, index) => {
+    projectReceiptsWithImages.forEach((row, index) => {
       const pageIndex = Math.floor(index / RECEIPTS_PER_PAGE);
       const indexOnPage = index % RECEIPTS_PER_PAGE;
       const col = indexOnPage % cols;
@@ -717,7 +723,7 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
         doc.setFont("helvetica", "normal");
         doc.setFontSize(9);
         doc.text(
-          `Page ${pageIndex + 1} of ${totalReceiptPages} · ${data.receiptsInOrder.length} receipt(s)`,
+          `Page ${pageIndex + 1} of ${totalReceiptPages} · ${projectReceiptsWithImages.length} receipt(s)`,
           pageW - PAGE_MARGIN,
           14,
           { align: "right" }
