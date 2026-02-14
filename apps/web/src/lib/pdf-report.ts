@@ -1,6 +1,12 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 
+export type ReportLineItem = {
+  description: string;
+  category: string;
+  amount: number;
+};
+
 export type ReportEntry = {
   id: string;
   date: Date;
@@ -10,6 +16,7 @@ export type ReportEntry = {
   currency: string;
   receiptsCount: number;
   accountEntry: { id: string; description: string; account: string } | null;
+  lineItems?: ReportLineItem[];
 };
 
 export type ReportReceiptRow = {
@@ -49,6 +56,7 @@ export type ProjectReportExpenditureRow = {
   description: string;
   amount: number;
   cashflowEntryId: string;
+  lineItems?: ReportLineItem[];
 };
 
 export type ProjectReportIncomeRow = {
@@ -57,6 +65,7 @@ export type ProjectReportIncomeRow = {
   description: string;
   amount: number;
   cashflowEntryId: string;
+  lineItems?: ReportLineItem[];
 };
 
 export type ProjectReportData = {
@@ -148,16 +157,40 @@ export function buildPdfReport(
   const netCashflow = totalIncome - totalExpenses;
 
   doc.setFont("helvetica", "normal");
+  const tableBody: string[][] = [];
+  for (const e of data.entries) {
+    const hasBreakdown = (e.lineItems?.length ?? 0) > 0;
+    if (hasBreakdown) {
+      tableBody.push([
+        new Date(e.date).toLocaleDateString("en-PH"),
+        e.description.slice(0, 42) + (e.description.length > 42 ? "…" : ""),
+        e.category.slice(0, 14) + (e.category.length > 14 ? "…" : ""),
+        "—",
+        "—",
+      ]);
+      for (const li of e.lineItems!) {
+        tableBody.push([
+          "",
+          "  \u2022 " + (li.description.slice(0, 38) + (li.description.length > 38 ? "…" : "")),
+          li.category.slice(0, 14) + (li.category.length > 14 ? "…" : ""),
+          li.amount > 0 ? formatCurrency(li.amount) : "—",
+          li.amount < 0 ? formatCurrency(Math.abs(li.amount)) : "—",
+        ]);
+      }
+    } else {
+      tableBody.push([
+        new Date(e.date).toLocaleDateString("en-PH"),
+        e.description.slice(0, 42) + (e.description.length > 42 ? "…" : ""),
+        e.category.slice(0, 14) + (e.category.length > 14 ? "…" : ""),
+        e.amount > 0 ? formatCurrency(e.amount) : "—",
+        e.amount < 0 ? formatCurrency(Math.abs(e.amount)) : "—",
+      ]);
+    }
+  }
   autoTable(doc, {
     startY: tableStartY,
     head: [["Date", "Description", "Category", "Credit", "Debit"]],
-    body: data.entries.map((e) => [
-      new Date(e.date).toLocaleDateString("en-PH"),
-      e.description.slice(0, 42) + (e.description.length > 42 ? "…" : ""),
-      e.category.slice(0, 14) + (e.category.length > 14 ? "…" : ""),
-      e.amount > 0 ? formatCurrency(e.amount) : "—",
-      e.amount < 0 ? formatCurrency(Math.abs(e.amount)) : "—",
-    ]),
+    body: tableBody,
     margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
     styles: { fontSize: 8, font: "helvetica", fontStyle: "normal" },
     headStyles: { fillColor: [66, 66, 66], fontSize: 8, font: "helvetica", fontStyle: "normal" },
@@ -490,15 +523,37 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
     doc.text("No collections recorded.", PAGE_MARGIN, y);
     y += 10;
   } else {
+    const incomeBody: string[][] = [];
+    for (const r of incomeRows) {
+      const hasBreakdown = (r.lineItems?.length ?? 0) > 0;
+      if (hasBreakdown) {
+        incomeBody.push([
+          new Date(r.date).toLocaleDateString("en-PH"),
+          r.budgetItemName.slice(0, 20) + (r.budgetItemName.length > 20 ? "…" : ""),
+          r.description.slice(0, 38) + (r.description.length > 38 ? "…" : ""),
+          "—",
+        ]);
+        for (const li of r.lineItems!) {
+          incomeBody.push([
+            "",
+            "",
+            "  \u2022 " + (li.description.slice(0, 34) + (li.description.length > 34 ? "…" : "")),
+            formatCurrency(li.amount),
+          ]);
+        }
+      } else {
+        incomeBody.push([
+          new Date(r.date).toLocaleDateString("en-PH"),
+          r.budgetItemName.slice(0, 20) + (r.budgetItemName.length > 20 ? "…" : ""),
+          r.description.slice(0, 38) + (r.description.length > 38 ? "…" : ""),
+          formatCurrency(r.amount),
+        ]);
+      }
+    }
     autoTable(doc, {
       startY: y,
       head: [["Date", "Line Item", "Description", "Amount"]],
-      body: incomeRows.map((r) => [
-        new Date(r.date).toLocaleDateString("en-PH"),
-        r.budgetItemName.slice(0, 20) + (r.budgetItemName.length > 20 ? "…" : ""),
-        r.description.slice(0, 38) + (r.description.length > 38 ? "…" : ""),
-        formatCurrency(r.amount),
-      ]),
+      body: incomeBody,
       margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
       styles: { fontSize: 8, font: "helvetica", fontStyle: "normal" },
       headStyles: { fillColor: [66, 66, 66], fontSize: 8, font: "helvetica", fontStyle: "normal" },
@@ -527,15 +582,37 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
     doc.text("No expenditures recorded.", PAGE_MARGIN, y);
     y += 10;
   } else {
+    const expenditureBody: string[][] = [];
+    for (const r of data.expenditureRows) {
+      const hasBreakdown = (r.lineItems?.length ?? 0) > 0;
+      if (hasBreakdown) {
+        expenditureBody.push([
+          new Date(r.date).toLocaleDateString("en-PH"),
+          r.budgetItemName.slice(0, 20) + (r.budgetItemName.length > 20 ? "…" : ""),
+          r.description.slice(0, 38) + (r.description.length > 38 ? "…" : ""),
+          "—",
+        ]);
+        for (const li of r.lineItems!) {
+          expenditureBody.push([
+            "",
+            "",
+            "  \u2022 " + (li.description.slice(0, 34) + (li.description.length > 34 ? "…" : "")),
+            formatCurrency(li.amount),
+          ]);
+        }
+      } else {
+        expenditureBody.push([
+          new Date(r.date).toLocaleDateString("en-PH"),
+          r.budgetItemName.slice(0, 20) + (r.budgetItemName.length > 20 ? "…" : ""),
+          r.description.slice(0, 38) + (r.description.length > 38 ? "…" : ""),
+          formatCurrency(r.amount),
+        ]);
+      }
+    }
     autoTable(doc, {
       startY: y,
       head: [["Date", "Line Item", "Description", "Amount"]],
-      body: data.expenditureRows.map((r) => [
-        new Date(r.date).toLocaleDateString("en-PH"),
-        r.budgetItemName.slice(0, 20) + (r.budgetItemName.length > 20 ? "…" : ""),
-        r.description.slice(0, 38) + (r.description.length > 38 ? "…" : ""),
-        formatCurrency(r.amount),
-      ]),
+      body: expenditureBody,
       margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
       styles: { fontSize: 8, font: "helvetica", fontStyle: "normal" },
       headStyles: { fillColor: [66, 66, 66], fontSize: 8, font: "helvetica", fontStyle: "normal" },

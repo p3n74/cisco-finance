@@ -77,6 +77,7 @@ model CashflowEntry {
   receiptSubmissions  ReceiptSubmission[]
   budgetItemExpenses  BudgetItemExpense[]
   budgetItemIncomes   BudgetItemIncome[]
+  lineItems           CashflowLineItem[]
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
 
@@ -85,6 +86,23 @@ model CashflowEntry {
   @@index([category])
   @@index([isActive])
   @@map("cashflow_entry")
+}
+
+/// Line-level breakdown of a single cashflow entry.
+/// Invariant (enforced in application logic, not DB): sum(lineItems.amount) must equal cashflowEntry.amount.
+model CashflowLineItem {
+  id              String        @id @default(cuid())
+  cashflowEntryId String
+  cashflowEntry   CashflowEntry @relation(fields: [cashflowEntryId], references: [id], onDelete: Cascade)
+  description     String
+  category        String
+  amount          Decimal
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([cashflowEntryId])
+  @@map("cashflow_line_item")
 }
 
 model Receipt {

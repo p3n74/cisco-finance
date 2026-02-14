@@ -344,6 +344,59 @@ function RouteComponent() {
 
   const currentReceipt = receipts[viewingReceiptIndex];
 
+  // Line item state
+  const [editingLineItemsEntry, setEditingLineItemsEntry] = useState<(typeof tableItems)[number] | null>(null);
+  const [lineItemsDraft, setLineItemsDraft] = useState<
+    { id?: string; description: string; category: string; amount: string; notes?: string }[]
+  >([]);
+  const [lineItemsLoading, setLineItemsLoading] = useState(false);
+
+  const loadLineItems = async (entryId: string) => {
+    setLineItemsLoading(true);
+    try {
+      const items = await queryClient.fetchQuery(
+        trpc.cashflowEntries.getLineItems.queryOptions({ id: entryId }),
+      );
+      setLineItemsDraft(
+        items.length > 0
+          ? items.map((item) => ({
+              id: item.id,
+              description: item.description,
+              category: item.category,
+              amount: item.amount.toString(),
+              notes: item.notes ?? "",
+            }))
+          : [
+              {
+                description: "",
+                category: "",
+                amount: "",
+              },
+            ],
+      );
+    } finally {
+      setLineItemsLoading(false);
+    }
+  };
+
+  const setLineItemsMutation = useMutation(
+    trpc.cashflowEntries.setLineItems.mutationOptions({
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: cashflowQueryOptions.queryKey });
+        queryClient.invalidateQueries({ queryKey: listPageQueryOptions.queryKey });
+        setEditingLineItemsEntry(null);
+      },
+      onError: (error) => {
+        toast.error(error.message || "Failed to save line items");
+      },
+    }),
+  );
+
+  const lineItemsTotal = lineItemsDraft.reduce((sum, item) => {
+    const n = Number(item.amount);
+    return sum + (Number.isFinite(n) ? n : 0);
+  }, 0);
+
   return (
     <div className="mx-auto flex w-full max-w-6xl min-w-0 flex-col gap-4 px-3 py-4 sm:gap-6 sm:px-4 sm:py-6">
       {/* Header Section */}
@@ -946,35 +999,60 @@ function RouteComponent() {
                         )}
                       </td>
                       <td className="px-5 py-4">
-                        <div className="flex items-center gap-2">
-                          <span className="text-muted-foreground">
-                            {entry.receiptsCount} file{entry.receiptsCount === 1 ? "" : "s"}
-                          </span>
-                          {entry.receiptsCount > 0 && (
-                            <Button 
-                              size="xs" 
-                              variant="ghost"
-                              onClick={() => {
-                                setViewingReceiptsEntryId(entry.id);
-                                setViewingEntry(entry);
-                                setViewingReceiptIndex(0);
-                              }}
-                            >
-                              View
-                            </Button>
-                          )}
-                          {canEditDashboard && (
-                            <Button 
-                              size="xs" 
-                              variant="ghost"
-                              onClick={() => {
-                                setAttachingToEntryId(entry.id);
-                                setAttachingToEntry(entry);
-                              }}
-                            >
-                              Attach
-                            </Button>
-                          )}
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-muted-foreground">
+                              {entry.receiptsCount} file{entry.receiptsCount === 1 ? "" : "s"}
+                            </span>
+                            {entry.receiptsCount > 0 && (
+                              <Button
+                                size="xs"
+                                variant="ghost"
+                                onClick={() => {
+                                  setViewingReceiptsEntryId(entry.id);
+                                  setViewingEntry(entry);
+                                  setViewingReceiptIndex(0);
+                                }}
+                              >
+                                View
+                              </Button>
+                            )}
+                            {canEditDashboard && (
+                              <Button
+                                size="xs"
+                                variant="ghost"
+                                onClick={() => {
+                                  setAttachingToEntryId(entry.id);
+                                  setAttachingToEntry(entry);
+                                }}
+                              >
+                                Attach
+                              </Button>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {Array.isArray(entry.lineItems) && entry.lineItems.length > 0 ? (
+                              <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                                {entry.lineItems.length} item{entry.lineItems.length === 1 ? "" : "s"}
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                                No breakdown
+                              </span>
+                            )}
+                            {canEditDashboard && (
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                onClick={() => {
+                                  setEditingLineItemsEntry(entry);
+                                  void loadLineItems(entry.id);
+                                }}
+                              >
+                                Breakdown
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       </td>
                     </tr>
@@ -1397,6 +1475,178 @@ function RouteComponent() {
               </form>
             )}
           </div>
+        </DialogPopup>
+      </Dialog>
+
+      {/* Line Items Breakdown Dialog */}
+      <Dialog
+        open={!!editingLineItemsEntry}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingLineItemsEntry(null);
+          }
+        }}
+      >
+        <DialogPopup className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Breakdown transaction</DialogTitle>
+            <DialogDescription>
+              {editingLineItemsEntry
+                ? `${editingLineItemsEntry.description} — ${formatCurrency(editingLineItemsEntry.amount)}`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          {editingLineItemsEntry ? (
+            <div className="mt-4 space-y-4">
+              <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs">
+                <div className="space-y-0.5">
+                  <p className="text-muted-foreground">Parent amount</p>
+                  <p className="font-semibold">
+                    {formatCurrency(editingLineItemsEntry.amount)}
+                  </p>
+                </div>
+                <div className="space-y-0.5 text-right">
+                  <p className="text-muted-foreground">Line items total</p>
+                  <p
+                    className={cn(
+                      "font-semibold",
+                      Math.abs(lineItemsTotal - editingLineItemsEntry.amount) < 0.01
+                        ? "text-emerald-500"
+                        : "text-rose-500",
+                    )}
+                  >
+                    {formatCurrency(lineItemsTotal)}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {Math.abs(lineItemsTotal - editingLineItemsEntry.amount) < 0.01
+                      ? "Balanced"
+                      : "Does not add up"}
+                  </p>
+                </div>
+              </div>
+
+              {lineItemsLoading ? (
+                <div className="py-8 text-center text-muted-foreground text-sm">
+                  Loading line items…
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-[2fr_2fr_1fr_auto] gap-2 text-xs font-medium text-muted-foreground">
+                    <span>Description</span>
+                    <span>Category</span>
+                    <span className="text-right">Amount</span>
+                    <span />
+                  </div>
+                  <div className="space-y-2">
+                    {lineItemsDraft.map((item, index) => (
+                      <div
+                        key={item.id ?? index}
+                        className="grid grid-cols-[2fr_2fr_1fr_auto] gap-2 items-center"
+                      >
+                        <Input
+                          placeholder="Description"
+                          value={item.description}
+                          onChange={(e) => {
+                            const next = [...lineItemsDraft];
+                            next[index] = { ...next[index], description: e.target.value };
+                            setLineItemsDraft(next);
+                          }}
+                        />
+                        <Input
+                          placeholder="Category"
+                          value={item.category}
+                          onChange={(e) => {
+                            const next = [...lineItemsDraft];
+                            next[index] = { ...next[index], category: e.target.value };
+                            setLineItemsDraft(next);
+                          }}
+                        />
+                        <Input
+                          className="text-right"
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={item.amount}
+                          onChange={(e) => {
+                            const next = [...lineItemsDraft];
+                            next[index] = { ...next[index], amount: e.target.value };
+                            setLineItemsDraft(next);
+                          }}
+                        />
+                        <div className="flex items-center gap-1 justify-end">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => {
+                              setLineItemsDraft((prev) =>
+                                prev.length <= 1 ? prev : prev.filter((_, i) => i !== index),
+                              );
+                            }}
+                            disabled={lineItemsDraft.length <= 1}
+                          >
+                            ×
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="pt-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setLineItemsDraft((prev) => [
+                          ...prev,
+                          { description: "", category: "", amount: "" },
+                        ])
+                      }
+                    >
+                      Add item
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : null}
+          <DialogFooter className="mt-6">
+            <DialogClose asChild>
+              <Button type="button" variant="outline">
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button
+              type="button"
+              disabled={
+                !editingLineItemsEntry ||
+                lineItemsDraft.some(
+                  (item) =>
+                    !item.description.trim() ||
+                    !item.category.trim() ||
+                    item.amount === "",
+                ) ||
+                Math.abs(lineItemsTotal - (editingLineItemsEntry?.amount ?? 0)) >= 0.01 ||
+                setLineItemsMutation.isPending
+              }
+              onClick={() => {
+                if (!editingLineItemsEntry) return;
+                setLineItemsMutation.mutate({
+                  cashflowEntryId: editingLineItemsEntry.id,
+                  items: lineItemsDraft.map((item) => ({
+                    id: item.id,
+                    description: item.description,
+                    category: item.category,
+                    amount: Number(item.amount),
+                    notes: item.notes || undefined,
+                  })),
+                });
+              }}
+            >
+              {setLineItemsMutation.isPending ? "Saving..." : "Save breakdown"}
+            </Button>
+          </DialogFooter>
         </DialogPopup>
       </Dialog>
     </div>
