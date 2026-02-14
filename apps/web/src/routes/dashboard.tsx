@@ -350,8 +350,31 @@ function RouteComponent() {
 
   const currentReceipt = receipts[viewingReceiptIndex];
 
+  // Edit description/category state
+  const [editingCashflowEntry, setEditingCashflowEntry] = useState<TableEntry | null>(null);
+  const [editForm, setEditForm] = useState({ description: "", category: "" });
+
+  const updateCashflowMutation = useMutation(
+    trpc.cashflowEntries.update.mutationOptions({
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: cashflowQueryOptions.queryKey });
+        queryClient.invalidateQueries({ queryKey: listPageQueryOptions.queryKey });
+        queryClient.invalidateQueries({
+          predicate: (query) =>
+            Array.isArray(query.queryKey[0]) &&
+            query.queryKey[0][0] === "accountEntries",
+        });
+        setEditingCashflowEntry(null);
+        toast.success("Transaction updated");
+      },
+      onError: (err) => {
+        toast.error(err.message ?? "Failed to update transaction");
+      },
+    }),
+  );
+
   // Line item state
-  const [editingLineItemsEntry, setEditingLineItemsEntry] = useState<(typeof tableItems)[number] | null>(null);
+  const [editingLineItemsEntry, setEditingLineItemsEntry] = useState<TableEntry | null>(null);
   const [lineItemsDraft, setLineItemsDraft] = useState<
     { id?: string; description: string; category: string; amount: string; notes?: string }[]
   >([]);
@@ -1005,7 +1028,7 @@ function RouteComponent() {
                         )}
                       </td>
                       <td className="px-5 py-4">
-                        <div className="flex flex-col gap-1">
+                          <div className="flex flex-col gap-1">
                           <div className="flex items-center gap-2">
                             <span className="text-muted-foreground">
                               {entry.receiptsCount} file{entry.receiptsCount === 1 ? "" : "s"}
@@ -1024,16 +1047,31 @@ function RouteComponent() {
                               </Button>
                             )}
                             {canEditDashboard && (
-                              <Button
-                                size="xs"
-                                variant="ghost"
-                                onClick={() => {
-                                  setAttachingToEntryId(entry.id);
-                                  setAttachingToEntry(entry);
-                                }}
-                              >
-                                Attach
-                              </Button>
+                              <>
+                                <Button
+                                  size="xs"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    setAttachingToEntryId(entry.id);
+                                    setAttachingToEntry(entry);
+                                  }}
+                                >
+                                  Attach
+                                </Button>
+                                <Button
+                                  size="xs"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    setEditingCashflowEntry(entry);
+                                    setEditForm({
+                                      description: entry.description,
+                                      category: entry.category,
+                                    });
+                                  }}
+                                >
+                                  Edit
+                                </Button>
+                              </>
                             )}
                           </div>
                           <div className="flex items-center gap-2">
@@ -1199,6 +1237,69 @@ function RouteComponent() {
                 Attach More
               </Button>
             )}
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+
+      {/* Edit description & category dialog */}
+      <Dialog
+        open={editingCashflowEntry != null}
+        onOpenChange={(open) => {
+          if (!open) setEditingCashflowEntry(null);
+        }}
+      >
+        <DialogPopup className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit transaction</DialogTitle>
+            <DialogDescription>
+              Update description and category. If this transaction was verified from an account entry, the account entry description will be updated to match.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-desc">Description</Label>
+              <Input
+                id="edit-desc"
+                value={editForm.description}
+                onChange={(e) =>
+                  setEditForm((prev) => ({ ...prev, description: e.target.value }))
+                }
+                placeholder="Transaction description"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-cat">Category</Label>
+              <Input
+                id="edit-cat"
+                value={editForm.category}
+                onChange={(e) =>
+                  setEditForm((prev) => ({ ...prev, category: e.target.value }))
+                }
+                placeholder="Category"
+              />
+            </div>
+          </div>
+          <DialogFooter className="mt-6">
+            <DialogClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button
+              disabled={
+                updateCashflowMutation.isPending ||
+                editForm.description.trim().length < 2 ||
+                editForm.category.trim().length < 2
+              }
+              onClick={() => {
+                if (!editingCashflowEntry) return;
+                updateCashflowMutation.mutate({
+                  id: editingCashflowEntry.id,
+                  description: editForm.description.trim(),
+                  category: editForm.category.trim(),
+                });
+              }}
+            >
+              {updateCashflowMutation.isPending ? "Saving..." : "Save changes"}
+            </Button>
           </DialogFooter>
         </DialogPopup>
       </Dialog>

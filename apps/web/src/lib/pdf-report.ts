@@ -163,16 +163,16 @@ export function buildPdfReport(
     if (hasBreakdown) {
       tableBody.push([
         new Date(e.date).toLocaleDateString("en-PH"),
-        e.description.slice(0, 42) + (e.description.length > 42 ? "…" : ""),
-        e.category.slice(0, 14) + (e.category.length > 14 ? "…" : ""),
+        e.description,
+        e.category,
         "—",
         "—",
       ]);
       for (const li of e.lineItems!) {
         tableBody.push([
           "",
-          "  \u2022 " + (li.description.slice(0, 38) + (li.description.length > 38 ? "…" : "")),
-          li.category.slice(0, 14) + (li.category.length > 14 ? "…" : ""),
+          "  \u2022 " + li.description,
+          li.category,
           li.amount > 0 ? formatCurrency(li.amount) : "—",
           li.amount < 0 ? formatCurrency(Math.abs(li.amount)) : "—",
         ]);
@@ -180,8 +180,8 @@ export function buildPdfReport(
     } else {
       tableBody.push([
         new Date(e.date).toLocaleDateString("en-PH"),
-        e.description.slice(0, 42) + (e.description.length > 42 ? "…" : ""),
-        e.category.slice(0, 14) + (e.category.length > 14 ? "…" : ""),
+        e.description,
+        e.category,
         e.amount > 0 ? formatCurrency(e.amount) : "—",
         e.amount < 0 ? formatCurrency(Math.abs(e.amount)) : "—",
       ]);
@@ -192,15 +192,15 @@ export function buildPdfReport(
     head: [["Date", "Description", "Category", "Credit", "Debit"]],
     body: tableBody,
     margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
-    styles: { fontSize: 8, font: "helvetica", fontStyle: "normal" },
+    styles: { fontSize: 8, font: "helvetica", fontStyle: "normal", overflow: "linebreak" },
     headStyles: { fillColor: [66, 66, 66], fontSize: 8, font: "helvetica", fontStyle: "normal" },
     alternateRowStyles: { fillColor: [245, 245, 245] },
     columnStyles: {
       0: { cellWidth: 24, font: "helvetica", fontStyle: "normal" },
-      1: { cellWidth: 50, font: "helvetica", fontStyle: "normal", overflow: "ellipsize" },
-      2: { cellWidth: 28, font: "helvetica", fontStyle: "normal", overflow: "ellipsize" },
-      3: { cellWidth: 38, halign: "right", font: "helvetica", fontStyle: "normal", overflow: "ellipsize" },
-      4: { cellWidth: 38, halign: "right", font: "helvetica", fontStyle: "normal", overflow: "ellipsize" },
+      1: { cellWidth: 50, font: "helvetica", fontStyle: "normal", overflow: "linebreak" },
+      2: { cellWidth: 28, font: "helvetica", fontStyle: "normal", overflow: "linebreak" },
+      3: { cellWidth: 38, halign: "right", font: "helvetica", fontStyle: "normal", overflow: "linebreak" },
+      4: { cellWidth: 38, halign: "right", font: "helvetica", fontStyle: "normal", overflow: "linebreak" },
     },
   });
 
@@ -283,13 +283,8 @@ export function buildPdfReport(
       doc.setLineWidth(0.2);
       doc.rect(cellX, cellY, RECEIPT_CELL_W, RECEIPT_CELL_H, "S");
 
-      // Caption: transaction description + amount (single line, truncated)
-      const caption =
-        (row.entryDescription.length > 32
-          ? row.entryDescription.slice(0, 32) + "…"
-          : row.entryDescription) +
-        " · " +
-        formatCurrency(row.amount);
+      // Caption: transaction description + amount (wraps within cell)
+      const caption = row.entryDescription + " · " + formatCurrency(row.amount);
       doc.setFontSize(8);
       doc.setFont("helvetica", "bold");
       doc.text(caption, cellX + 3, cellY + 5.5, { maxWidth: RECEIPT_CELL_W - 6 });
@@ -320,11 +315,8 @@ export function buildPdfReport(
         doc.setTextColor(0, 0, 0);
       }
 
-      // Footer: submitter + purpose (small, one line if possible)
-      const footerText =
-        row.receipt.submitterName +
-        " — " +
-        (row.receipt.purpose.length > 36 ? row.receipt.purpose.slice(0, 36) + "…" : row.receipt.purpose);
+      // Footer: submitter + purpose (wraps within cell)
+      const footerText = row.receipt.submitterName + " — " + row.receipt.purpose;
       doc.setFontSize(7);
       doc.setTextColor(80, 80, 80);
       doc.text(footerText, cellX + 3, cellY + RECEIPT_CELL_H - 3, {
@@ -398,18 +390,18 @@ export function buildActivityLogPdf(
         timeStyle: "short",
       }),
       item.user?.name ?? "Unknown",
-      item.action.slice(0, 12) + (item.action.length > 12 ? "…" : ""),
-      item.description.slice(0, 60) + (item.description.length > 60 ? "…" : ""),
+      item.action,
+      item.description,
     ]),
     margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
     styles: { fontSize: 8, font: "helvetica", fontStyle: "normal", overflow: "linebreak" },
     headStyles: { fillColor: [66, 66, 66], fontSize: 8, font: "helvetica", fontStyle: "normal" },
     alternateRowStyles: { fillColor: [245, 245, 245] },
     columnStyles: {
-      0: { cellWidth: 28 },
-      1: { cellWidth: 42 },
-      2: { cellWidth: 22 },
-      3: { cellWidth: "auto" },
+      0: { cellWidth: 28, overflow: "linebreak" },
+      1: { cellWidth: 42, overflow: "linebreak" },
+      2: { cellWidth: 22, overflow: "linebreak" },
+      3: { cellWidth: "auto", overflow: "linebreak" },
     },
   });
 
@@ -490,22 +482,22 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
       startY: y,
       head: [["Item", "Type", "Description", "Budgeted Amount", "Notes"]],
       body: data.budgetPlanRows.map((r) => [
-        r.itemName.slice(0, 24) + (r.itemName.length > 24 ? "…" : ""),
+        r.itemName,
         r.type === "income" ? "Revenue" : "Expenditure",
-        (r.description || "—").slice(0, 28) + (r.description.length > 28 ? "…" : ""),
+        r.description || "—",
         formatCurrency(r.estimatedAmount),
-        (r.notes || "—").slice(0, 20) + (r.notes.length > 20 ? "…" : ""),
+        r.notes || "—",
       ]),
       margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
-      styles: { fontSize: 8, font: "helvetica", fontStyle: "normal" },
+      styles: { fontSize: 8, font: "helvetica", fontStyle: "normal", overflow: "linebreak" },
       headStyles: { fillColor: [66, 66, 66], fontSize: 8, font: "helvetica", fontStyle: "normal" },
       alternateRowStyles: { fillColor: [245, 245, 245] },
       columnStyles: {
-        0: { cellWidth: 30 },
-        1: { cellWidth: 26 },
-        2: { cellWidth: 40, overflow: "ellipsize" },
-        3: { cellWidth: 36, halign: "right" },
-        4: { cellWidth: 36, overflow: "ellipsize" },
+        0: { cellWidth: 30, overflow: "linebreak" },
+        1: { cellWidth: 26, overflow: "linebreak" },
+        2: { cellWidth: 40, overflow: "linebreak" },
+        3: { cellWidth: 36, halign: "right", overflow: "linebreak" },
+        4: { cellWidth: 36, overflow: "linebreak" },
       },
     });
     y =
@@ -532,23 +524,23 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
       if (hasBreakdown) {
         incomeBody.push([
           new Date(r.date).toLocaleDateString("en-PH"),
-          r.budgetItemName.slice(0, 20) + (r.budgetItemName.length > 20 ? "…" : ""),
-          r.description.slice(0, 38) + (r.description.length > 38 ? "…" : ""),
+          r.budgetItemName,
+          r.description,
           "—",
         ]);
         for (const li of r.lineItems!) {
           incomeBody.push([
             "",
             "",
-            "  \u2022 " + (li.description.slice(0, 34) + (li.description.length > 34 ? "…" : "")),
+            "  \u2022 " + li.description,
             formatCurrency(li.amount),
           ]);
         }
       } else {
         incomeBody.push([
           new Date(r.date).toLocaleDateString("en-PH"),
-          r.budgetItemName.slice(0, 20) + (r.budgetItemName.length > 20 ? "…" : ""),
-          r.description.slice(0, 38) + (r.description.length > 38 ? "…" : ""),
+          r.budgetItemName,
+          r.description,
           formatCurrency(r.amount),
         ]);
       }
@@ -558,14 +550,14 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
       head: [["Date", "Line Item", "Description", "Amount"]],
       body: incomeBody,
       margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
-      styles: { fontSize: 8, font: "helvetica", fontStyle: "normal" },
+      styles: { fontSize: 8, font: "helvetica", fontStyle: "normal", overflow: "linebreak" },
       headStyles: { fillColor: [66, 66, 66], fontSize: 8, font: "helvetica", fontStyle: "normal" },
       alternateRowStyles: { fillColor: [240, 252, 240] },
       columnStyles: {
-        0: { cellWidth: 24 },
-        1: { cellWidth: 32, overflow: "ellipsize" },
-        2: { cellWidth: 62, overflow: "ellipsize" },
-        3: { cellWidth: 40, halign: "right" },
+        0: { cellWidth: 24, overflow: "linebreak" },
+        1: { cellWidth: 32, overflow: "linebreak" },
+        2: { cellWidth: 62, overflow: "linebreak" },
+        3: { cellWidth: 40, halign: "right", overflow: "linebreak" },
       },
     });
     y =
@@ -591,23 +583,23 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
       if (hasBreakdown) {
         expenditureBody.push([
           new Date(r.date).toLocaleDateString("en-PH"),
-          r.budgetItemName.slice(0, 20) + (r.budgetItemName.length > 20 ? "…" : ""),
-          r.description.slice(0, 38) + (r.description.length > 38 ? "…" : ""),
+          r.budgetItemName,
+          r.description,
           "—",
         ]);
         for (const li of r.lineItems!) {
           expenditureBody.push([
             "",
             "",
-            "  \u2022 " + (li.description.slice(0, 34) + (li.description.length > 34 ? "…" : "")),
+            "  \u2022 " + li.description,
             formatCurrency(li.amount),
           ]);
         }
       } else {
         expenditureBody.push([
           new Date(r.date).toLocaleDateString("en-PH"),
-          r.budgetItemName.slice(0, 20) + (r.budgetItemName.length > 20 ? "…" : ""),
-          r.description.slice(0, 38) + (r.description.length > 38 ? "…" : ""),
+          r.budgetItemName,
+          r.description,
           formatCurrency(r.amount),
         ]);
       }
@@ -617,14 +609,14 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
       head: [["Date", "Line Item", "Description", "Amount"]],
       body: expenditureBody,
       margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
-      styles: { fontSize: 8, font: "helvetica", fontStyle: "normal" },
+      styles: { fontSize: 8, font: "helvetica", fontStyle: "normal", overflow: "linebreak" },
       headStyles: { fillColor: [66, 66, 66], fontSize: 8, font: "helvetica", fontStyle: "normal" },
       alternateRowStyles: { fillColor: [245, 245, 245] },
       columnStyles: {
-        0: { cellWidth: 24 },
-        1: { cellWidth: 32, overflow: "ellipsize" },
-        2: { cellWidth: 62, overflow: "ellipsize" },
-        3: { cellWidth: 40, halign: "right" },
+        0: { cellWidth: 24, overflow: "linebreak" },
+        1: { cellWidth: 32, overflow: "linebreak" },
+        2: { cellWidth: 62, overflow: "linebreak" },
+        3: { cellWidth: 40, halign: "right", overflow: "linebreak" },
       },
     });
     y =
@@ -737,12 +729,7 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
       doc.setLineWidth(0.2);
       doc.rect(cellX, cellY, RECEIPT_CELL_W, RECEIPT_CELL_H, "S");
 
-      const caption =
-        (row.entryDescription.length > 32
-          ? row.entryDescription.slice(0, 32) + "…"
-          : row.entryDescription) +
-        " · " +
-        formatCurrency(row.amount);
+      const caption = row.entryDescription + " · " + formatCurrency(row.amount);
       doc.setFontSize(8);
       doc.setFont("helvetica", "bold");
       doc.text(caption, cellX + 3, cellY + 5.5, { maxWidth: RECEIPT_CELL_W - 6 });
@@ -771,10 +758,7 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
         doc.setTextColor(0, 0, 0);
       }
 
-      const footerText =
-        row.receipt.submitterName +
-        " — " +
-        (row.receipt.purpose.length > 36 ? row.receipt.purpose.slice(0, 36) + "…" : row.receipt.purpose);
+      const footerText = row.receipt.submitterName + " — " + row.receipt.purpose;
       doc.setFontSize(7);
       doc.setTextColor(80, 80, 80);
       doc.text(footerText, cellX + 3, cellY + RECEIPT_CELL_H - 3, {
