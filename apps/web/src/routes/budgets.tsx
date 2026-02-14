@@ -483,7 +483,7 @@ function BudgetsRoute() {
                             }
                             // Fetch receipt images in batches to stay under response size limits
                             const receiptIds = data.receiptsInOrder.map((r) => r.receipt.id);
-                            const BATCH = 8; // batch size to balance speed vs 5MB response limit
+                            const BATCH = 5; // batch size to balance speed vs 5MB response limit
                             for (let i = 0; i < receiptIds.length; i += BATCH) {
                               const batch = receiptIds.slice(i, i + BATCH);
                               const images = await queryClient.fetchQuery(
