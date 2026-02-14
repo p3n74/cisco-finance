@@ -1044,8 +1044,8 @@ function ReceiptSubmissionForm() {
       return;
     }
 
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error("Image must be less than 10MB");
+    if (file.size > 625 * 1024) {
+      toast.error("Receipt image must be less than 625 KB");
       return;
     }
 

@@ -30,6 +30,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { downloadPdfReport } from "@/lib/pdf-report";
+import { buttonVariants } from "@/components/ui/button";
 import { queryClient, trpc } from "@/utils/trpc";
 import { toast } from "sonner";
 import { NotWhitelistedView } from "@/components/not-whitelisted-view";
@@ -259,6 +260,11 @@ function RouteComponent() {
     if (!file) return;
 
     if (!file.type.startsWith("image/")) {
+      return;
+    }
+
+    if (file.size > 625 * 1024) {
+      toast.error("Receipt image must be less than 625 KB");
       return;
     }
 
@@ -1241,9 +1247,9 @@ function RouteComponent() {
           </div>
           <DialogFooter className="mt-6">
             <DialogClose asChild>
-              <Button type="button" variant="outline">
+              <button type="button" className={buttonVariants({ variant: "outline" })}>
                 Cancel
-              </Button>
+              </button>
             </DialogClose>
             <Button
               disabled={pdfGenerating || isPdfOnCooldown}
@@ -1258,6 +1264,20 @@ function RouteComponent() {
                       dateSort: "desc",
                     })
                   );
+                  // Fetch receipt images in batches to stay under response size limits
+                  const receiptIds = data.receiptsInOrder.map((r) => r.receipt.id);
+                  const BATCH = 8; // batch size to balance speed vs 5MB response limit
+                  for (let i = 0; i < receiptIds.length; i += BATCH) {
+                    const batch = receiptIds.slice(i, i + BATCH);
+                    const images = await queryClient.fetchQuery(
+                      trpc.report.getReportReceiptImages.queryOptions({ receiptIds: batch })
+                    );
+                    const byId = new Map(images.map((img) => [img.id, img]));
+                    for (const row of data.receiptsInOrder) {
+                      const img = byId.get(row.receipt.id);
+                      if (img) row.receipt.imageData = img.imageData;
+                    }
+                  }
                   downloadPdfReport(data, {
                     dateFrom: pdfDateFrom.trim() || undefined,
                     dateTo: pdfDateTo.trim() || undefined,

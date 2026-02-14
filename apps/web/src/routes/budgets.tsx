@@ -481,6 +481,20 @@ function BudgetsRoute() {
                               toast.error("Project not found or unavailable.");
                               return;
                             }
+                            // Fetch receipt images in batches to stay under response size limits
+                            const receiptIds = data.receiptsInOrder.map((r) => r.receipt.id);
+                            const BATCH = 8; // batch size to balance speed vs 5MB response limit
+                            for (let i = 0; i < receiptIds.length; i += BATCH) {
+                              const batch = receiptIds.slice(i, i + BATCH);
+                              const images = await queryClient.fetchQuery(
+                                trpc.report.getReportReceiptImages.queryOptions({ receiptIds: batch })
+                              );
+                              const byId = new Map(images.map((img) => [img.id, img]));
+                              for (const row of data.receiptsInOrder) {
+                                const img = byId.get(row.receipt.id);
+                                if (img) row.receipt.imageData = img.imageData;
+                              }
+                            }
                             downloadProjectReportPdf(data);
                             toast.success("Project report PDF downloaded.");
                           } catch (err) {
