@@ -99,10 +99,9 @@ const RECEIPT_FOOTER_H = 10;
 const RECEIPT_IMG_W = RECEIPT_CELL_W - 4;
 const RECEIPT_IMG_H = RECEIPT_CELL_H - RECEIPT_CAPTION_H - RECEIPT_FOOTER_H - 4;
 
-/** Format as PHP amount, no ± or sign character (use separate minus if needed). */
+/** Format as PHP amount, no sign (magnitude only). */
 function formatCurrency(value: number): string {
-  const abs = Math.abs(value);
-  const num = abs.toLocaleString("en-PH", {
+  const num = (value >= 0 ? value : -value).toLocaleString("en-PH", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -426,10 +425,24 @@ export function downloadActivityLogPdf(
  * 3. Summary: revenue & expenditure variances, surplus/(deficit)
  * 4. Receipts in order, 4 per page in a 2×2 grid
  */
+/** Approximate height (mm) of the full "4. Summary" block so we can enforce lower margin. */
+const PROJECT_REPORT_SUMMARY_BLOCK_HEIGHT = 78;
+
 export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const pageW = doc.getPageWidth();
+  const pageH = doc.getPageHeight();
+  const pageBottom = pageH - PAGE_MARGIN;
   let y = PAGE_MARGIN;
+
+  /** If current y would push content past the lower margin, start a new page and return updated y. */
+  function ensureSpace(requiredHeight: number): number {
+    if (y + requiredHeight > pageBottom) {
+      doc.addPage();
+      return PAGE_MARGIN;
+    }
+    return y;
+  }
 
   // ----- Title & project info -----
   doc.setFontSize(18);
@@ -625,6 +638,11 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
   }
 
   // ----- 4. Summary (Revenue, Expenditures, Surplus/(Deficit)) -----
+  // Sum what's in each table; no abs — revenue sum is positive, expenditure sum is negative.
+  const totalActualIncome = (data.incomeRows ?? []).reduce((s, r) => s + r.amount, 0);
+  const totalActual = (data.expenditureRows ?? []).reduce((s, r) => s + r.amount, 0);
+
+  y = ensureSpace(PROJECT_REPORT_SUMMARY_BLOCK_HEIGHT);
   doc.setFontSize(11);
   doc.setFont("helvetica", "bold");
   doc.text("4. Summary", PAGE_MARGIN, y);
@@ -632,12 +650,12 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
   doc.setFont("helvetica", "normal");
 
   const totalIncomeBudget = data.totalIncomeBudget ?? 0;
-  const totalActualIncome = data.totalActualIncome ?? 0;
   const revenueVariance = totalActualIncome - totalIncomeBudget;
-  const expenditureVariance = data.totalBudget - data.totalActual;
-  const surplusDeficit = totalActualIncome - data.totalActual;
+  const expenditureVariance = data.totalBudget + totalActual;
+  const surplusDeficit = totalActualIncome + totalActual;
 
   doc.setFontSize(10);
+  y = ensureSpace(28); // Revenue block height
   doc.setFont("helvetica", "bold");
   doc.text("Revenue", PAGE_MARGIN, y);
   y += 6;
@@ -652,10 +670,11 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
   const revVarStr =
     revenueVariance >= 0
       ? `${formatCurrency(revenueVariance)} (Favorable)`
-      : `- ${formatCurrency(Math.abs(revenueVariance))} (Unfavorable)`;
+      : `${formatCurrency(revenueVariance)} (Unfavorable)`;
   doc.text(revVarStr, pageW - PAGE_MARGIN - 50, y, { align: "right" });
   y += 10;
 
+  y = ensureSpace(28); // Expenditures block height
   doc.setFont("helvetica", "bold");
   doc.text("Expenditures", PAGE_MARGIN, y);
   y += 6;
@@ -664,20 +683,20 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
   doc.text(formatCurrency(data.totalBudget), pageW - PAGE_MARGIN - 50, y, { align: "right" });
   y += 6;
   doc.text("  Actual Expenditures", PAGE_MARGIN, y);
-  doc.text(formatCurrency(data.totalActual), pageW - PAGE_MARGIN - 50, y, { align: "right" });
+  doc.text(formatCurrency(totalActual), pageW - PAGE_MARGIN - 50, y, { align: "right" });
   y += 6;
   doc.text("  Variance", PAGE_MARGIN, y);
   const expVarStr =
     expenditureVariance >= 0
       ? `${formatCurrency(expenditureVariance)} (Favorable)`
-      : `- ${formatCurrency(Math.abs(expenditureVariance))} (Unfavorable)`;
+      : `${formatCurrency(expenditureVariance)} (Unfavorable)`;
   doc.text(expVarStr, pageW - PAGE_MARGIN - 50, y, { align: "right" });
   y += 10;
 
+  y = ensureSpace(8); // Net line height
   doc.setFont("helvetica", "bold");
   doc.text("Net (Revenue minus Expenditures)", PAGE_MARGIN, y);
-  const netStr =
-    surplusDeficit >= 0 ? formatCurrency(surplusDeficit) : `- ${formatCurrency(Math.abs(surplusDeficit))}`;
+  const netStr = formatCurrency(surplusDeficit);
   if (surplusDeficit >= 0) doc.setTextColor(16, 130, 80);
   else doc.setTextColor(190, 40, 40);
   doc.text(netStr, pageW - PAGE_MARGIN - 50, y, { align: "right" });

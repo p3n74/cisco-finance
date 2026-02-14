@@ -2949,24 +2949,6 @@ export const appRouter = router({
         const totalIncomeBudget = project.items
           .filter((i) => i.type === "income")
           .reduce((sum, item) => sum + Number(item.estimatedAmount), 0);
-        const totalActual = project.items.reduce(
-          (sum, item) =>
-            sum +
-            item.expenses.reduce(
-              (expSum, exp) => expSum + Math.abs(Number(exp.cashflowEntry.amount)),
-              0
-            ),
-          0
-        );
-        const totalActualIncome = project.items.reduce(
-          (sum, item) =>
-            sum +
-            item.incomes.reduce(
-              (incSum, inc) => incSum + Number(inc.cashflowEntry.amount),
-              0
-            ),
-          0
-        );
 
         const budgetPlanRows = project.items.map((item) => ({
           itemName: item.name,
@@ -3007,7 +2989,13 @@ export const appRouter = router({
           };
         };
 
-        const expenseEntries: { date: Date; budgetItemName: string; entry: (typeof project.items)[0]["expenses"][0]["cashflowEntry"] }[] = [];
+        // All cashflow entries from the project (expense + income budget items), sorted by date then name.
+        type EntryWithMeta = {
+          date: Date;
+          budgetItemName: string;
+          entry: (typeof project.items)[0]["expenses"][0]["cashflowEntry"];
+        };
+        const expenseEntries: EntryWithMeta[] = [];
         for (const item of project.items) {
           for (const exp of item.expenses) {
             expenseEntries.push({
@@ -3017,27 +3005,7 @@ export const appRouter = router({
             });
           }
         }
-        expenseEntries.sort(
-          (a, b) =>
-            new Date(a.date).getTime() - new Date(b.date).getTime() ||
-            a.budgetItemName.localeCompare(b.budgetItemName)
-        );
-
-        const expenditureRows: ExpenditureRow[] = expenseEntries.map(({ date, budgetItemName, entry }) => ({
-          date,
-          budgetItemName,
-          description: entry.description,
-          amount: Math.abs(Number(entry.amount)),
-          cashflowEntryId: entry.id,
-          lineItems:
-            entry.lineItems?.map((li) => ({
-              description: li.description,
-              category: li.category,
-              amount: Math.abs(Number(li.amount)),
-            })) ?? [],
-        }));
-
-        const incomeEntries: { date: Date; budgetItemName: string; entry: (typeof project.items)[0]["incomes"][0]["cashflowEntry"] }[] = [];
+        const incomeEntries: EntryWithMeta[] = [];
         for (const item of project.items) {
           for (const inc of item.incomes) {
             incomeEntries.push({
@@ -3047,25 +3015,84 @@ export const appRouter = router({
             });
           }
         }
-        incomeEntries.sort(
+        const allEntries: EntryWithMeta[] = [...expenseEntries, ...incomeEntries].sort(
           (a, b) =>
             new Date(a.date).getTime() - new Date(b.date).getTime() ||
             a.budgetItemName.localeCompare(b.budgetItemName)
         );
 
-        const incomeRows: IncomeRow[] = incomeEntries.map(({ date, budgetItemName, entry }) => ({
-          date,
-          budgetItemName,
-          description: entry.description,
-          amount: Number(entry.amount),
-          cashflowEntryId: entry.id,
-          lineItems:
-            entry.lineItems?.map((li) => ({
-              description: li.description,
-              category: li.category,
-              amount: Number(li.amount),
-            })) ?? [],
-        }));
+        // Sign only: positive → Revenue table, negative → Expenses table. No abs; data sign is correct.
+        const incomeRows: IncomeRow[] = [];
+        const expenditureRows: ExpenditureRow[] = [];
+        for (const { date, budgetItemName, entry } of allEntries) {
+          const lineItems = entry.lineItems ?? [];
+          const hasLineItems = lineItems.length > 0;
+
+          if (hasLineItems) {
+            const positive = lineItems.filter((li) => Number(li.amount) > 0);
+            const negative = lineItems.filter((li) => Number(li.amount) < 0);
+            if (positive.length > 0) {
+              incomeRows.push({
+                date,
+                budgetItemName,
+                description: entry.description,
+                amount: positive.reduce((s, li) => s + Number(li.amount), 0),
+                cashflowEntryId: entry.id,
+                lineItems: positive.map((li) => ({
+                  description: li.description,
+                  category: li.category,
+                  amount: Number(li.amount),
+                })),
+              });
+            }
+            if (negative.length > 0) {
+              expenditureRows.push({
+                date,
+                budgetItemName,
+                description: entry.description,
+                amount: negative.reduce((s, li) => s + Number(li.amount), 0),
+                cashflowEntryId: entry.id,
+                lineItems: negative.map((li) => ({
+                  description: li.description,
+                  category: li.category,
+                  amount: Number(li.amount),
+                })),
+              });
+            }
+          } else {
+            const amt = Number(entry.amount);
+            if (amt > 0) {
+              incomeRows.push({
+                date,
+                budgetItemName,
+                description: entry.description,
+                amount: amt,
+                cashflowEntryId: entry.id,
+              });
+            } else if (amt < 0) {
+              expenditureRows.push({
+                date,
+                budgetItemName,
+                description: entry.description,
+                amount: amt,
+                cashflowEntryId: entry.id,
+              });
+            }
+          }
+        }
+        incomeRows.sort(
+          (a, b) =>
+            new Date(a.date).getTime() - new Date(b.date).getTime() ||
+            a.budgetItemName.localeCompare(b.budgetItemName)
+        );
+        expenditureRows.sort(
+          (a, b) =>
+            new Date(a.date).getTime() - new Date(b.date).getTime() ||
+            a.budgetItemName.localeCompare(b.budgetItemName)
+        );
+
+        const totalActualIncome = incomeRows.reduce((s, r) => s + r.amount, 0);
+        const totalActual = expenditureRows.reduce((s, r) => s + r.amount, 0);
 
         const receiptsInOrder: ReceiptRow[] = [];
         for (const { entry } of expenseEntries) {
