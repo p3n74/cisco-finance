@@ -1319,6 +1319,10 @@ export const appRouter = router({
                         amount: true,
                         description: true,
                         date: true,
+                        lineItems: {
+                          select: { id: true, description: true, category: true, amount: true },
+                          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+                        },
                       },
                     },
                   },
@@ -1331,6 +1335,10 @@ export const appRouter = router({
                         amount: true,
                         description: true,
                         date: true,
+                        lineItems: {
+                          select: { id: true, description: true, category: true, amount: true },
+                          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+                        },
                       },
                     },
                   },
@@ -1404,24 +1412,46 @@ export const appRouter = router({
                       ),
                 expenseCount: item.expenses.length,
                 incomeCount: item.incomes.length,
-                expenses: item.expenses.map((exp) => ({
-                  id: exp.id,
-                  cashflowEntryId: exp.cashflowEntryId,
-                  cashflowEntry: {
-                    ...exp.cashflowEntry,
-                    amount: Number(exp.cashflowEntry.amount),
-                  },
-                  createdAt: exp.createdAt,
-                })),
-                incomes: item.incomes.map((inc) => ({
-                  id: inc.id,
-                  cashflowEntryId: inc.cashflowEntryId,
-                  cashflowEntry: {
-                    ...inc.cashflowEntry,
-                    amount: Number(inc.cashflowEntry.amount),
-                  },
-                  createdAt: inc.createdAt,
-                })),
+                expenses: item.expenses.map((exp) => {
+                  const ce = exp.cashflowEntry as typeof exp.cashflowEntry & {
+                    lineItems?: { id: string; description: string; category: string; amount: unknown }[];
+                  };
+                  return {
+                    id: exp.id,
+                    cashflowEntryId: exp.cashflowEntryId,
+                    cashflowEntry: {
+                      ...exp.cashflowEntry,
+                      amount: Number(exp.cashflowEntry.amount),
+                      lineItems: ce.lineItems?.map((li) => ({
+                        id: li.id,
+                        description: li.description,
+                        category: li.category,
+                        amount: Number(li.amount),
+                      })) ?? [],
+                    },
+                    createdAt: exp.createdAt,
+                  };
+                }),
+                incomes: item.incomes.map((inc) => {
+                  const ce = inc.cashflowEntry as typeof inc.cashflowEntry & {
+                    lineItems?: { id: string; description: string; category: string; amount: unknown }[];
+                  };
+                  return {
+                    id: inc.id,
+                    cashflowEntryId: inc.cashflowEntryId,
+                    cashflowEntry: {
+                      ...inc.cashflowEntry,
+                      amount: Number(inc.cashflowEntry.amount),
+                      lineItems: ce.lineItems?.map((li) => ({
+                        id: li.id,
+                        description: li.description,
+                        category: li.category,
+                        amount: Number(li.amount),
+                      })) ?? [],
+                    },
+                    createdAt: inc.createdAt,
+                  };
+                }),
               })),
             };
           }),
@@ -1454,6 +1484,10 @@ export const appRouter = router({
                         accountEntry: {
                           select: { id: true, account: true, description: true },
                         },
+                        lineItems: {
+                          select: { id: true, description: true, category: true, amount: true },
+                          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+                        },
                       },
                     },
                   },
@@ -1469,6 +1503,10 @@ export const appRouter = router({
                         category: true,
                         accountEntry: {
                           select: { id: true, account: true, description: true },
+                        },
+                        lineItems: {
+                          select: { id: true, description: true, category: true, amount: true },
+                          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
                         },
                       },
                     },
@@ -1547,6 +1585,12 @@ export const appRouter = router({
               cashflowEntry: {
                 ...exp.cashflowEntry,
                 amount: Number(exp.cashflowEntry.amount),
+                lineItems: exp.cashflowEntry.lineItems?.map((li) => ({
+                  id: li.id,
+                  description: li.description,
+                  category: li.category,
+                  amount: Number(li.amount),
+                })) ?? [],
               },
               createdAt: exp.createdAt,
             })),
@@ -1556,6 +1600,12 @@ export const appRouter = router({
               cashflowEntry: {
                 ...inc.cashflowEntry,
                 amount: Number(inc.cashflowEntry.amount),
+                lineItems: inc.cashflowEntry.lineItems?.map((li) => ({
+                  id: li.id,
+                  description: li.description,
+                  category: li.category,
+                  amount: Number(li.amount),
+                })) ?? [],
               },
               createdAt: inc.createdAt,
             })),
@@ -2115,9 +2165,17 @@ export const appRouter = router({
               date: true,
               category: true,
               accountEntry: { select: { account: true } },
+              lineItems: {
+                select: { id: true, description: true, category: true, amount: true },
+                orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+              },
             },
           });
-          return cashflows.map((c) => ({ ...c, amount: Number(c.amount) }));
+          return cashflows.map((c) => ({
+            ...c,
+            amount: Number(c.amount),
+            lineItems: c.lineItems.map((li) => ({ ...li, amount: Number(li.amount) })),
+          }));
         }
 
         const linkedExpenses = await ctx.prisma.budgetItemExpense.findMany({
@@ -2138,10 +2196,18 @@ export const appRouter = router({
             date: true,
             category: true,
             accountEntry: { select: { account: true } },
+            lineItems: {
+              select: { id: true, description: true, category: true, amount: true },
+              orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+            },
           },
         });
 
-        return cashflows.map((c) => ({ ...c, amount: Number(c.amount) }));
+        return cashflows.map((c) => ({
+          ...c,
+          amount: Number(c.amount),
+          lineItems: c.lineItems.map((li) => ({ ...li, amount: Number(li.amount) })),
+        }));
       }),
   }),
 
@@ -2171,6 +2237,15 @@ export const appRouter = router({
             accountEntry: {
               select: { id: true, description: true, account: true },
             },
+            lineItems: {
+              select: {
+                id: true,
+                description: true,
+                category: true,
+                amount: true,
+              },
+              orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+            },
           },
         });
         const nextCursor = entries.length > limit ? entries[limit - 1].id : null;
@@ -2189,6 +2264,12 @@ export const appRouter = router({
             receiptsCount: entry.receipts.length + entry.receiptSubmissions.length,
             accountEntryId: entry.accountEntryId,
             accountEntry: entry.accountEntry,
+            lineItems: entry.lineItems.map((item) => ({
+              id: item.id,
+              description: item.description,
+              category: item.category,
+              amount: Number(item.amount),
+            })),
           })),
           nextCursor,
         };
@@ -2283,6 +2364,15 @@ export const appRouter = router({
             accountEntry: {
               select: { id: true, description: true, account: true },
             },
+            lineItems: {
+              select: {
+                id: true,
+                description: true,
+                category: true,
+                amount: true,
+              },
+              orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+            },
           },
         });
 
@@ -2303,9 +2393,118 @@ export const appRouter = router({
             receiptsCount: entry.receipts.length + entry.receiptSubmissions.length,
             accountEntryId: entry.accountEntryId,
             accountEntry: entry.accountEntry,
+            lineItems: entry.lineItems.map((item) => ({
+              id: item.id,
+              description: item.description,
+              category: item.category,
+              amount: Number(item.amount),
+            })),
           })),
           hasMore,
         };
+      }),
+    // Get line items for a specific cashflow entry
+    getLineItems: whitelistedProcedure
+      .input(z.object({ id: z.string() }))
+      .query(async ({ ctx, input }) => {
+        const items = await ctx.prisma.cashflowLineItem.findMany({
+          where: { cashflowEntryId: input.id },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+          select: {
+            id: true,
+            description: true,
+            category: true,
+            amount: true,
+            notes: true,
+          },
+        });
+        return items.map((item) => ({
+          id: item.id,
+          description: item.description,
+          category: item.category,
+          amount: Number(item.amount),
+          notes: item.notes,
+        }));
+      }),
+    // Replace line items for an entry (validates that the sum equals entry.amount)
+    setLineItems: cashflowEditorProcedure
+      .input(
+        z.object({
+          cashflowEntryId: z.string(),
+          items: z
+            .array(
+              z.object({
+                id: z.string().optional(),
+                description: z.string().min(1),
+                category: z.string().min(1),
+                amount: z.coerce.number(),
+                notes: z.string().optional(),
+              }),
+            )
+            .max(100),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const entry = await ctx.prisma.cashflowEntry.findUnique({
+          where: { id: input.cashflowEntryId },
+          select: { id: true, amount: true, description: true },
+        });
+        if (!entry) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Cashflow entry not found" });
+        }
+
+        const targetAmount = Number(entry.amount);
+        const total = input.items.reduce((sum, item) => sum + item.amount, 0);
+
+        // Use a small epsilon to account for floating point rounding on the client side.
+        const EPSILON = 0.01;
+        if (Math.abs(total - targetAmount) > EPSILON) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Line items do not add up. Expected total ${targetAmount.toFixed(
+              2,
+            )}, got ${total.toFixed(2)}.`,
+          });
+        }
+
+        await ctx.prisma.$transaction(async (tx) => {
+          // Delete existing items for this entry
+          await tx.cashflowLineItem.deleteMany({
+            where: { cashflowEntryId: input.cashflowEntryId },
+          });
+
+          if (input.items.length === 0) return;
+
+          await tx.cashflowLineItem.createMany({
+            data: input.items.map((item) => ({
+              ...(item.id ? { id: item.id } : {}),
+              cashflowEntryId: input.cashflowEntryId,
+              description: item.description,
+              category: item.category,
+              amount: item.amount,
+              notes: item.notes ?? null,
+            })),
+          });
+        });
+
+        await logActivity(
+          ctx.prisma,
+          ctx.session.user.id,
+          "updated",
+          "cashflow_line_item",
+          `updated line items for transaction "${entry.description}"`,
+          entry.id,
+          { lineItemCount: input.items.length, total },
+          ctx.ws,
+        );
+
+        ctx.ws?.emitToUser(ctx.session.user.id, {
+          event: WS_EVENTS.CASHFLOW_UPDATED,
+          action: "updated",
+          entityId: entry.id,
+        });
+
+        return { success: true };
       }),
     // Get receipts for a specific cashflow entry
     getReceipts: whitelistedProcedure
@@ -2478,6 +2677,10 @@ export const appRouter = router({
             accountEntry: {
               select: { id: true, description: true, account: true },
             },
+            lineItems: {
+              select: { description: true, category: true, amount: true },
+              orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+            },
           },
         });
 
@@ -2504,6 +2707,11 @@ export const appRouter = router({
           currency: entry.currency,
           receiptsCount: entry.receipts.length + entry.receiptSubmissions.length,
           accountEntry: entry.accountEntry,
+          lineItems: entry.lineItems.map((li) => ({
+            description: li.description,
+            category: li.category,
+            amount: Number(li.amount),
+          })),
         }));
         type ReceiptRow = {
           entryId: string;
@@ -2571,6 +2779,10 @@ export const appRouter = router({
                           },
                           orderBy: { createdAt: "asc" },
                         },
+                        lineItems: {
+                          select: { description: true, category: true, amount: true },
+                          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+                        },
                       },
                     },
                   },
@@ -2590,6 +2802,10 @@ export const appRouter = router({
                             createdAt: true,
                           },
                           orderBy: { createdAt: "asc" },
+                        },
+                        lineItems: {
+                          select: { description: true, category: true, amount: true },
+                          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
                         },
                       },
                     },
@@ -2634,12 +2850,14 @@ export const appRouter = router({
           notes: item.notes ?? "",
         }));
 
+        type LineItemRow = { description: string; category: string; amount: number };
         type ExpenditureRow = {
           date: Date;
           budgetItemName: string;
           description: string;
           amount: number;
           cashflowEntryId: string;
+          lineItems?: LineItemRow[];
         };
         type IncomeRow = {
           date: Date;
@@ -2647,6 +2865,7 @@ export const appRouter = router({
           description: string;
           amount: number;
           cashflowEntryId: string;
+          lineItems?: LineItemRow[];
         };
         type ReceiptRow = {
           entryId: string;
@@ -2684,6 +2903,12 @@ export const appRouter = router({
           description: entry.description,
           amount: Math.abs(Number(entry.amount)),
           cashflowEntryId: entry.id,
+          lineItems:
+            entry.lineItems?.map((li) => ({
+              description: li.description,
+              category: li.category,
+              amount: Math.abs(Number(li.amount)),
+            })) ?? [],
         }));
 
         const incomeEntries: { date: Date; budgetItemName: string; entry: (typeof project.items)[0]["incomes"][0]["cashflowEntry"] }[] = [];
@@ -2708,6 +2933,12 @@ export const appRouter = router({
           description: entry.description,
           amount: Number(entry.amount),
           cashflowEntryId: entry.id,
+          lineItems:
+            entry.lineItems?.map((li) => ({
+              description: li.description,
+              category: li.category,
+              amount: Number(li.amount),
+            })) ?? [],
         }));
 
         const receiptsInOrder: ReceiptRow[] = [];
