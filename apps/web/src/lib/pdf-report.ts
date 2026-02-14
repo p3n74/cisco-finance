@@ -1,6 +1,12 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 
+export type ReportLineItem = {
+  description: string;
+  category: string;
+  amount: number;
+};
+
 export type ReportEntry = {
   id: string;
   date: Date;
@@ -10,6 +16,7 @@ export type ReportEntry = {
   currency: string;
   receiptsCount: number;
   accountEntry: { id: string; description: string; account: string } | null;
+  lineItems?: ReportLineItem[];
 };
 
 export type ReportReceiptRow = {
@@ -19,7 +26,7 @@ export type ReportReceiptRow = {
   amount: number;
   receipt: {
     id: string;
-    imageData: string;
+    imageData: string | null;
     imageType: string | null;
     submitterName: string;
     purpose: string;
@@ -49,6 +56,7 @@ export type ProjectReportExpenditureRow = {
   description: string;
   amount: number;
   cashflowEntryId: string;
+  lineItems?: ReportLineItem[];
 };
 
 export type ProjectReportIncomeRow = {
@@ -57,6 +65,7 @@ export type ProjectReportIncomeRow = {
   description: string;
   amount: number;
   cashflowEntryId: string;
+  lineItems?: ReportLineItem[];
 };
 
 export type ProjectReportData = {
@@ -90,10 +99,9 @@ const RECEIPT_FOOTER_H = 10;
 const RECEIPT_IMG_W = RECEIPT_CELL_W - 4;
 const RECEIPT_IMG_H = RECEIPT_CELL_H - RECEIPT_CAPTION_H - RECEIPT_FOOTER_H - 4;
 
-/** Format as PHP amount, no ± or sign character (use separate minus if needed). */
+/** Format as PHP amount, no sign (magnitude only). */
 function formatCurrency(value: number): string {
-  const abs = Math.abs(value);
-  const num = abs.toLocaleString("en-PH", {
+  const num = (value >= 0 ? value : -value).toLocaleString("en-PH", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -148,26 +156,50 @@ export function buildPdfReport(
   const netCashflow = totalIncome - totalExpenses;
 
   doc.setFont("helvetica", "normal");
+  const tableBody: string[][] = [];
+  for (const e of data.entries) {
+    const hasBreakdown = (e.lineItems?.length ?? 0) > 0;
+    if (hasBreakdown) {
+      tableBody.push([
+        new Date(e.date).toLocaleDateString("en-PH"),
+        e.description,
+        e.category,
+        "—",
+        "—",
+      ]);
+      for (const li of e.lineItems!) {
+        tableBody.push([
+          "",
+          "  \u2022 " + li.description,
+          li.category,
+          li.amount > 0 ? formatCurrency(li.amount) : "—",
+          li.amount < 0 ? formatCurrency(Math.abs(li.amount)) : "—",
+        ]);
+      }
+    } else {
+      tableBody.push([
+        new Date(e.date).toLocaleDateString("en-PH"),
+        e.description,
+        e.category,
+        e.amount > 0 ? formatCurrency(e.amount) : "—",
+        e.amount < 0 ? formatCurrency(Math.abs(e.amount)) : "—",
+      ]);
+    }
+  }
   autoTable(doc, {
     startY: tableStartY,
     head: [["Date", "Description", "Category", "Credit", "Debit"]],
-    body: data.entries.map((e) => [
-      new Date(e.date).toLocaleDateString("en-PH"),
-      e.description.slice(0, 42) + (e.description.length > 42 ? "…" : ""),
-      e.category.slice(0, 14) + (e.category.length > 14 ? "…" : ""),
-      e.amount > 0 ? formatCurrency(e.amount) : "—",
-      e.amount < 0 ? formatCurrency(Math.abs(e.amount)) : "—",
-    ]),
+    body: tableBody,
     margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
-    styles: { fontSize: 8, font: "helvetica", fontStyle: "normal" },
+    styles: { fontSize: 8, font: "helvetica", fontStyle: "normal", overflow: "linebreak" },
     headStyles: { fillColor: [66, 66, 66], fontSize: 8, font: "helvetica", fontStyle: "normal" },
     alternateRowStyles: { fillColor: [245, 245, 245] },
     columnStyles: {
       0: { cellWidth: 24, font: "helvetica", fontStyle: "normal" },
-      1: { cellWidth: 50, font: "helvetica", fontStyle: "normal", overflow: "ellipsize" },
-      2: { cellWidth: 28, font: "helvetica", fontStyle: "normal", overflow: "ellipsize" },
-      3: { cellWidth: 38, halign: "right", font: "helvetica", fontStyle: "normal", overflow: "ellipsize" },
-      4: { cellWidth: 38, halign: "right", font: "helvetica", fontStyle: "normal", overflow: "ellipsize" },
+      1: { cellWidth: 50, font: "helvetica", fontStyle: "normal", overflow: "linebreak" },
+      2: { cellWidth: 28, font: "helvetica", fontStyle: "normal", overflow: "linebreak" },
+      3: { cellWidth: 38, halign: "right", font: "helvetica", fontStyle: "normal", overflow: "linebreak" },
+      4: { cellWidth: 38, halign: "right", font: "helvetica", fontStyle: "normal", overflow: "linebreak" },
     },
   });
 
@@ -202,14 +234,17 @@ export function buildPdfReport(
   doc.setFont("helvetica", "normal");
 
   // ----- Receipts section: 4 per page in 2×2 grid (best for readability) -----
-  if (data.receiptsInOrder.length > 0) {
+  const receiptsWithImages = data.receiptsInOrder.filter(
+    (row): row is typeof row & { receipt: { imageData: string } } => row.receipt.imageData != null
+  );
+  if (receiptsWithImages.length > 0) {
     doc.addPage(); // Start receipts on a new page so they don't overlap the summary
-    const totalReceiptPages = Math.ceil(data.receiptsInOrder.length / RECEIPTS_PER_PAGE);
+    const totalReceiptPages = Math.ceil(receiptsWithImages.length / RECEIPTS_PER_PAGE);
     const cols = 2;
     const rows = 2;
     const receiptStartY = 22;
 
-    data.receiptsInOrder.forEach((row, index) => {
+    receiptsWithImages.forEach((row, index) => {
       const pageIndex = Math.floor(index / RECEIPTS_PER_PAGE);
       const indexOnPage = index % RECEIPTS_PER_PAGE;
       const col = indexOnPage % cols;
@@ -231,7 +266,7 @@ export function buildPdfReport(
         doc.setFont("helvetica", "normal");
         doc.setFontSize(9);
         doc.text(
-          `Page ${pageIndex + 1} of ${totalReceiptPages} · ${data.receiptsInOrder.length} receipt(s) in order by transaction`,
+          `Page ${pageIndex + 1} of ${totalReceiptPages} · ${receiptsWithImages.length} receipt(s) in order by transaction`,
           pageW - PAGE_MARGIN,
           14,
           { align: "right" }
@@ -247,13 +282,8 @@ export function buildPdfReport(
       doc.setLineWidth(0.2);
       doc.rect(cellX, cellY, RECEIPT_CELL_W, RECEIPT_CELL_H, "S");
 
-      // Caption: transaction description + amount (single line, truncated)
-      const caption =
-        (row.entryDescription.length > 32
-          ? row.entryDescription.slice(0, 32) + "…"
-          : row.entryDescription) +
-        " · " +
-        formatCurrency(row.amount);
+      // Caption: transaction description + amount (wraps within cell)
+      const caption = row.entryDescription + " · " + formatCurrency(row.amount);
       doc.setFontSize(8);
       doc.setFont("helvetica", "bold");
       doc.text(caption, cellX + 3, cellY + 5.5, { maxWidth: RECEIPT_CELL_W - 6 });
@@ -284,11 +314,8 @@ export function buildPdfReport(
         doc.setTextColor(0, 0, 0);
       }
 
-      // Footer: submitter + purpose (small, one line if possible)
-      const footerText =
-        row.receipt.submitterName +
-        " — " +
-        (row.receipt.purpose.length > 36 ? row.receipt.purpose.slice(0, 36) + "…" : row.receipt.purpose);
+      // Footer: submitter + purpose (wraps within cell)
+      const footerText = row.receipt.submitterName + " — " + row.receipt.purpose;
       doc.setFontSize(7);
       doc.setTextColor(80, 80, 80);
       doc.text(footerText, cellX + 3, cellY + RECEIPT_CELL_H - 3, {
@@ -362,18 +389,18 @@ export function buildActivityLogPdf(
         timeStyle: "short",
       }),
       item.user?.name ?? "Unknown",
-      item.action.slice(0, 12) + (item.action.length > 12 ? "…" : ""),
-      item.description.slice(0, 60) + (item.description.length > 60 ? "…" : ""),
+      item.action,
+      item.description,
     ]),
     margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
     styles: { fontSize: 8, font: "helvetica", fontStyle: "normal", overflow: "linebreak" },
     headStyles: { fillColor: [66, 66, 66], fontSize: 8, font: "helvetica", fontStyle: "normal" },
     alternateRowStyles: { fillColor: [245, 245, 245] },
     columnStyles: {
-      0: { cellWidth: 28 },
-      1: { cellWidth: 42 },
-      2: { cellWidth: 22 },
-      3: { cellWidth: "auto" },
+      0: { cellWidth: 28, overflow: "linebreak" },
+      1: { cellWidth: 42, overflow: "linebreak" },
+      2: { cellWidth: 22, overflow: "linebreak" },
+      3: { cellWidth: "auto", overflow: "linebreak" },
     },
   });
 
@@ -398,10 +425,24 @@ export function downloadActivityLogPdf(
  * 3. Summary: revenue & expenditure variances, surplus/(deficit)
  * 4. Receipts in order, 4 per page in a 2×2 grid
  */
+/** Approximate height (mm) of the full "4. Summary" block so we can enforce lower margin. */
+const PROJECT_REPORT_SUMMARY_BLOCK_HEIGHT = 78;
+
 export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const pageW = doc.getPageWidth();
+  const pageH = doc.getPageHeight();
+  const pageBottom = pageH - PAGE_MARGIN;
   let y = PAGE_MARGIN;
+
+  /** If current y would push content past the lower margin, start a new page and return updated y. */
+  function ensureSpace(requiredHeight: number): number {
+    if (y + requiredHeight > pageBottom) {
+      doc.addPage();
+      return PAGE_MARGIN;
+    }
+    return y;
+  }
 
   // ----- Title & project info -----
   doc.setFontSize(18);
@@ -454,22 +495,22 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
       startY: y,
       head: [["Item", "Type", "Description", "Budgeted Amount", "Notes"]],
       body: data.budgetPlanRows.map((r) => [
-        r.itemName.slice(0, 24) + (r.itemName.length > 24 ? "…" : ""),
+        r.itemName,
         r.type === "income" ? "Revenue" : "Expenditure",
-        (r.description || "—").slice(0, 28) + (r.description.length > 28 ? "…" : ""),
+        r.description || "—",
         formatCurrency(r.estimatedAmount),
-        (r.notes || "—").slice(0, 20) + (r.notes.length > 20 ? "…" : ""),
+        r.notes || "—",
       ]),
       margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
-      styles: { fontSize: 8, font: "helvetica", fontStyle: "normal" },
+      styles: { fontSize: 8, font: "helvetica", fontStyle: "normal", overflow: "linebreak" },
       headStyles: { fillColor: [66, 66, 66], fontSize: 8, font: "helvetica", fontStyle: "normal" },
       alternateRowStyles: { fillColor: [245, 245, 245] },
       columnStyles: {
-        0: { cellWidth: 30 },
-        1: { cellWidth: 26 },
-        2: { cellWidth: 40, overflow: "ellipsize" },
-        3: { cellWidth: 36, halign: "right" },
-        4: { cellWidth: 36, overflow: "ellipsize" },
+        0: { cellWidth: 30, overflow: "linebreak" },
+        1: { cellWidth: 26, overflow: "linebreak" },
+        2: { cellWidth: 40, overflow: "linebreak" },
+        3: { cellWidth: 36, halign: "right", overflow: "linebreak" },
+        4: { cellWidth: 36, overflow: "linebreak" },
       },
     });
     y =
@@ -490,24 +531,46 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
     doc.text("No collections recorded.", PAGE_MARGIN, y);
     y += 10;
   } else {
+    const incomeBody: string[][] = [];
+    for (const r of incomeRows) {
+      const hasBreakdown = (r.lineItems?.length ?? 0) > 0;
+      if (hasBreakdown) {
+        incomeBody.push([
+          new Date(r.date).toLocaleDateString("en-PH"),
+          r.budgetItemName,
+          r.description,
+          "—",
+        ]);
+        for (const li of r.lineItems!) {
+          incomeBody.push([
+            "",
+            "",
+            "  \u2022 " + li.description,
+            formatCurrency(li.amount),
+          ]);
+        }
+      } else {
+        incomeBody.push([
+          new Date(r.date).toLocaleDateString("en-PH"),
+          r.budgetItemName,
+          r.description,
+          formatCurrency(r.amount),
+        ]);
+      }
+    }
     autoTable(doc, {
       startY: y,
       head: [["Date", "Line Item", "Description", "Amount"]],
-      body: incomeRows.map((r) => [
-        new Date(r.date).toLocaleDateString("en-PH"),
-        r.budgetItemName.slice(0, 20) + (r.budgetItemName.length > 20 ? "…" : ""),
-        r.description.slice(0, 38) + (r.description.length > 38 ? "…" : ""),
-        formatCurrency(r.amount),
-      ]),
+      body: incomeBody,
       margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
-      styles: { fontSize: 8, font: "helvetica", fontStyle: "normal" },
+      styles: { fontSize: 8, font: "helvetica", fontStyle: "normal", overflow: "linebreak" },
       headStyles: { fillColor: [66, 66, 66], fontSize: 8, font: "helvetica", fontStyle: "normal" },
       alternateRowStyles: { fillColor: [240, 252, 240] },
       columnStyles: {
-        0: { cellWidth: 24 },
-        1: { cellWidth: 32, overflow: "ellipsize" },
-        2: { cellWidth: 62, overflow: "ellipsize" },
-        3: { cellWidth: 40, halign: "right" },
+        0: { cellWidth: 24, overflow: "linebreak" },
+        1: { cellWidth: 32, overflow: "linebreak" },
+        2: { cellWidth: 62, overflow: "linebreak" },
+        3: { cellWidth: 40, halign: "right", overflow: "linebreak" },
       },
     });
     y =
@@ -527,24 +590,46 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
     doc.text("No expenditures recorded.", PAGE_MARGIN, y);
     y += 10;
   } else {
+    const expenditureBody: string[][] = [];
+    for (const r of data.expenditureRows) {
+      const hasBreakdown = (r.lineItems?.length ?? 0) > 0;
+      if (hasBreakdown) {
+        expenditureBody.push([
+          new Date(r.date).toLocaleDateString("en-PH"),
+          r.budgetItemName,
+          r.description,
+          "—",
+        ]);
+        for (const li of r.lineItems!) {
+          expenditureBody.push([
+            "",
+            "",
+            "  \u2022 " + li.description,
+            formatCurrency(li.amount),
+          ]);
+        }
+      } else {
+        expenditureBody.push([
+          new Date(r.date).toLocaleDateString("en-PH"),
+          r.budgetItemName,
+          r.description,
+          formatCurrency(r.amount),
+        ]);
+      }
+    }
     autoTable(doc, {
       startY: y,
       head: [["Date", "Line Item", "Description", "Amount"]],
-      body: data.expenditureRows.map((r) => [
-        new Date(r.date).toLocaleDateString("en-PH"),
-        r.budgetItemName.slice(0, 20) + (r.budgetItemName.length > 20 ? "…" : ""),
-        r.description.slice(0, 38) + (r.description.length > 38 ? "…" : ""),
-        formatCurrency(r.amount),
-      ]),
+      body: expenditureBody,
       margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
-      styles: { fontSize: 8, font: "helvetica", fontStyle: "normal" },
+      styles: { fontSize: 8, font: "helvetica", fontStyle: "normal", overflow: "linebreak" },
       headStyles: { fillColor: [66, 66, 66], fontSize: 8, font: "helvetica", fontStyle: "normal" },
       alternateRowStyles: { fillColor: [245, 245, 245] },
       columnStyles: {
-        0: { cellWidth: 24 },
-        1: { cellWidth: 32, overflow: "ellipsize" },
-        2: { cellWidth: 62, overflow: "ellipsize" },
-        3: { cellWidth: 40, halign: "right" },
+        0: { cellWidth: 24, overflow: "linebreak" },
+        1: { cellWidth: 32, overflow: "linebreak" },
+        2: { cellWidth: 62, overflow: "linebreak" },
+        3: { cellWidth: 40, halign: "right", overflow: "linebreak" },
       },
     });
     y =
@@ -553,6 +638,11 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
   }
 
   // ----- 4. Summary (Revenue, Expenditures, Surplus/(Deficit)) -----
+  // Sum what's in each table; no abs — revenue sum is positive, expenditure sum is negative.
+  const totalActualIncome = (data.incomeRows ?? []).reduce((s, r) => s + r.amount, 0);
+  const totalActual = (data.expenditureRows ?? []).reduce((s, r) => s + r.amount, 0);
+
+  y = ensureSpace(PROJECT_REPORT_SUMMARY_BLOCK_HEIGHT);
   doc.setFontSize(11);
   doc.setFont("helvetica", "bold");
   doc.text("4. Summary", PAGE_MARGIN, y);
@@ -560,12 +650,12 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
   doc.setFont("helvetica", "normal");
 
   const totalIncomeBudget = data.totalIncomeBudget ?? 0;
-  const totalActualIncome = data.totalActualIncome ?? 0;
   const revenueVariance = totalActualIncome - totalIncomeBudget;
-  const expenditureVariance = data.totalBudget - data.totalActual;
-  const surplusDeficit = totalActualIncome - data.totalActual;
+  const expenditureVariance = data.totalBudget + totalActual;
+  const surplusDeficit = totalActualIncome + totalActual;
 
   doc.setFontSize(10);
+  y = ensureSpace(28); // Revenue block height
   doc.setFont("helvetica", "bold");
   doc.text("Revenue", PAGE_MARGIN, y);
   y += 6;
@@ -580,10 +670,11 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
   const revVarStr =
     revenueVariance >= 0
       ? `${formatCurrency(revenueVariance)} (Favorable)`
-      : `- ${formatCurrency(Math.abs(revenueVariance))} (Unfavorable)`;
+      : `${formatCurrency(revenueVariance)} (Unfavorable)`;
   doc.text(revVarStr, pageW - PAGE_MARGIN - 50, y, { align: "right" });
   y += 10;
 
+  y = ensureSpace(28); // Expenditures block height
   doc.setFont("helvetica", "bold");
   doc.text("Expenditures", PAGE_MARGIN, y);
   y += 6;
@@ -592,20 +683,20 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
   doc.text(formatCurrency(data.totalBudget), pageW - PAGE_MARGIN - 50, y, { align: "right" });
   y += 6;
   doc.text("  Actual Expenditures", PAGE_MARGIN, y);
-  doc.text(formatCurrency(data.totalActual), pageW - PAGE_MARGIN - 50, y, { align: "right" });
+  doc.text(formatCurrency(totalActual), pageW - PAGE_MARGIN - 50, y, { align: "right" });
   y += 6;
   doc.text("  Variance", PAGE_MARGIN, y);
   const expVarStr =
     expenditureVariance >= 0
       ? `${formatCurrency(expenditureVariance)} (Favorable)`
-      : `- ${formatCurrency(Math.abs(expenditureVariance))} (Unfavorable)`;
+      : `${formatCurrency(expenditureVariance)} (Unfavorable)`;
   doc.text(expVarStr, pageW - PAGE_MARGIN - 50, y, { align: "right" });
   y += 10;
 
+  y = ensureSpace(8); // Net line height
   doc.setFont("helvetica", "bold");
   doc.text("Net (Revenue minus Expenditures)", PAGE_MARGIN, y);
-  const netStr =
-    surplusDeficit >= 0 ? formatCurrency(surplusDeficit) : `- ${formatCurrency(Math.abs(surplusDeficit))}`;
+  const netStr = formatCurrency(surplusDeficit);
   if (surplusDeficit >= 0) doc.setTextColor(16, 130, 80);
   else doc.setTextColor(190, 40, 40);
   doc.text(netStr, pageW - PAGE_MARGIN - 50, y, { align: "right" });
@@ -613,13 +704,16 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
   doc.setFont("helvetica", "normal");
 
   // ----- Receipts section: same 2×2 grid as cashflow report -----
-  if (data.receiptsInOrder.length > 0) {
+  const projectReceiptsWithImages = data.receiptsInOrder.filter(
+    (row): row is typeof row & { receipt: { imageData: string } } => row.receipt.imageData != null
+  );
+  if (projectReceiptsWithImages.length > 0) {
     doc.addPage();
-    const totalReceiptPages = Math.ceil(data.receiptsInOrder.length / RECEIPTS_PER_PAGE);
+    const totalReceiptPages = Math.ceil(projectReceiptsWithImages.length / RECEIPTS_PER_PAGE);
     const cols = 2;
     const receiptStartY = 22;
 
-    data.receiptsInOrder.forEach((row, index) => {
+    projectReceiptsWithImages.forEach((row, index) => {
       const pageIndex = Math.floor(index / RECEIPTS_PER_PAGE);
       const indexOnPage = index % RECEIPTS_PER_PAGE;
       const col = indexOnPage % cols;
@@ -640,7 +734,7 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
         doc.setFont("helvetica", "normal");
         doc.setFontSize(9);
         doc.text(
-          `Page ${pageIndex + 1} of ${totalReceiptPages} · ${data.receiptsInOrder.length} receipt(s)`,
+          `Page ${pageIndex + 1} of ${totalReceiptPages} · ${projectReceiptsWithImages.length} receipt(s)`,
           pageW - PAGE_MARGIN,
           14,
           { align: "right" }
@@ -654,12 +748,7 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
       doc.setLineWidth(0.2);
       doc.rect(cellX, cellY, RECEIPT_CELL_W, RECEIPT_CELL_H, "S");
 
-      const caption =
-        (row.entryDescription.length > 32
-          ? row.entryDescription.slice(0, 32) + "…"
-          : row.entryDescription) +
-        " · " +
-        formatCurrency(row.amount);
+      const caption = row.entryDescription + " · " + formatCurrency(row.amount);
       doc.setFontSize(8);
       doc.setFont("helvetica", "bold");
       doc.text(caption, cellX + 3, cellY + 5.5, { maxWidth: RECEIPT_CELL_W - 6 });
@@ -688,10 +777,7 @@ export function buildProjectReportPdf(data: ProjectReportData): jsPDF {
         doc.setTextColor(0, 0, 0);
       }
 
-      const footerText =
-        row.receipt.submitterName +
-        " — " +
-        (row.receipt.purpose.length > 36 ? row.receipt.purpose.slice(0, 36) + "…" : row.receipt.purpose);
+      const footerText = row.receipt.submitterName + " — " + row.receipt.purpose;
       doc.setFontSize(7);
       doc.setTextColor(80, 80, 80);
       doc.text(footerText, cellX + 3, cellY + RECEIPT_CELL_H - 3, {

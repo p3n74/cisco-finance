@@ -481,6 +481,20 @@ function BudgetsRoute() {
                               toast.error("Project not found or unavailable.");
                               return;
                             }
+                            // Fetch receipt images in batches to stay under response size limits
+                            const receiptIds = data.receiptsInOrder.map((r) => r.receipt.id);
+                            const BATCH = 5; // batch size to balance speed vs 5MB response limit
+                            for (let i = 0; i < receiptIds.length; i += BATCH) {
+                              const batch = receiptIds.slice(i, i + BATCH);
+                              const images = await queryClient.fetchQuery(
+                                trpc.report.getReportReceiptImages.queryOptions({ receiptIds: batch })
+                              );
+                              const byId = new Map(images.map((img) => [img.id, img]));
+                              for (const row of data.receiptsInOrder) {
+                                const img = byId.get(row.receipt.id);
+                                if (img) row.receipt.imageData = img.imageData;
+                              }
+                            }
                             downloadProjectReportPdf(data);
                             toast.success("Project report PDF downloaded.");
                           } catch (err) {
@@ -572,23 +586,37 @@ function BudgetsRoute() {
                                     {item.expenses.length > 0 && (
                                       <div className="mt-2 space-y-1">
                                         {item.expenses.map((exp) => (
-                                          <div key={exp.id} className="flex items-center gap-2 text-xs">
-                                            <span className="text-rose-500">↳</span>
-                                            <span className="text-muted-foreground">
-                                              {formatDate(exp.cashflowEntry.date)} — {exp.cashflowEntry.description}
-                                            </span>
-                                            <span className="font-medium text-rose-500">
-                                              {formatCurrency(Math.abs(exp.cashflowEntry.amount))}
-                                            </span>
-                                            {canEditBudgets && (
-                                              <button
-                                                type="button"
-                                                className="text-rose-500 hover:text-rose-700"
-                                                onClick={() => unlinkExpense.mutate({ id: exp.id })}
-                                              >
-                                                ✕
-                                              </button>
-                                            )}
+                                          <div key={exp.id} className="space-y-0.5">
+                                            <div className="flex items-center gap-2 text-xs">
+                                              <span className="text-rose-500">↳</span>
+                                              <span className="text-muted-foreground">
+                                                {formatDate(exp.cashflowEntry.date)} — {exp.cashflowEntry.description}
+                                              </span>
+                                              <span className="font-medium text-rose-500">
+                                                {formatCurrency(Math.abs(exp.cashflowEntry.amount))}
+                                              </span>
+                                              {canEditBudgets && (
+                                                <button
+                                                  type="button"
+                                                  className="text-rose-500 hover:text-rose-700"
+                                                  onClick={() => unlinkExpense.mutate({ id: exp.id })}
+                                                >
+                                                  ✕
+                                                </button>
+                                              )}
+                                            </div>
+                                            {exp.cashflowEntry.lineItems?.length ? (
+                                              <div className="ml-4 space-y-0.5 border-l border-border/50 pl-2 text-[11px] text-muted-foreground">
+                                                {exp.cashflowEntry.lineItems.map((li, idx) => (
+                                                  <div key={li.id ?? idx} className="flex items-center gap-2">
+                                                    <span>↳ {li.description}</span>
+                                                    <span className="text-rose-500/80">
+                                                      {formatCurrency(Math.abs(li.amount))}
+                                                    </span>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            ) : null}
                                           </div>
                                         ))}
                                       </div>
@@ -597,23 +625,37 @@ function BudgetsRoute() {
                                     {item.incomes?.length > 0 && (
                                       <div className="mt-2 space-y-1">
                                         {item.incomes.map((inc) => (
-                                          <div key={inc.id} className="flex items-center gap-2 text-xs">
-                                            <span className="text-emerald-600">↳</span>
-                                            <span className="text-muted-foreground">
-                                              {formatDate(inc.cashflowEntry.date)} — {inc.cashflowEntry.description}
-                                            </span>
-                                            <span className="font-medium text-emerald-600">
-                                              {formatCurrency(inc.cashflowEntry.amount)}
-                                            </span>
-                                            {canEditBudgets && (
-                                              <button
-                                                type="button"
-                                                className="text-rose-500 hover:text-rose-700"
-                                                onClick={() => unlinkIncome.mutate({ id: inc.id })}
-                                              >
-                                                ✕
-                                              </button>
-                                            )}
+                                          <div key={inc.id} className="space-y-0.5">
+                                            <div className="flex items-center gap-2 text-xs">
+                                              <span className="text-emerald-600">↳</span>
+                                              <span className="text-muted-foreground">
+                                                {formatDate(inc.cashflowEntry.date)} — {inc.cashflowEntry.description}
+                                              </span>
+                                              <span className="font-medium text-emerald-600">
+                                                {formatCurrency(inc.cashflowEntry.amount)}
+                                              </span>
+                                              {canEditBudgets && (
+                                                <button
+                                                  type="button"
+                                                  className="text-rose-500 hover:text-rose-700"
+                                                  onClick={() => unlinkIncome.mutate({ id: inc.id })}
+                                                >
+                                                  ✕
+                                                </button>
+                                              )}
+                                            </div>
+                                            {inc.cashflowEntry.lineItems?.length ? (
+                                              <div className="ml-4 space-y-0.5 border-l border-border/50 pl-2 text-[11px] text-muted-foreground">
+                                                {inc.cashflowEntry.lineItems.map((li, idx) => (
+                                                  <div key={li.id ?? idx} className="flex items-center gap-2">
+                                                    <span>↳ {li.description}</span>
+                                                    <span className="text-emerald-600/80">
+                                                      {formatCurrency(li.amount)}
+                                                    </span>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            ) : null}
                                           </div>
                                         ))}
                                       </div>
@@ -1124,7 +1166,12 @@ function BudgetsRoute() {
                               {formatDate(cf.date)}
                             </td>
                             <td className="px-3 py-3 font-medium min-w-[140px]">
-                              {cf.description}
+                              <div>{cf.description}</div>
+                              {cf.lineItems?.length ? (
+                                <div className="mt-0.5 text-[10px] text-muted-foreground">
+                                  {cf.lineItems.length} item{cf.lineItems.length === 1 ? "" : "s"}
+                                </div>
+                              ) : null}
                             </td>
                             <td className="px-3 py-3 text-muted-foreground">
                               {cf.accountEntry?.account || "Manual"}

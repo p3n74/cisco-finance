@@ -10,8 +10,8 @@ import { sendEmail } from "../services/email";
 import { checkRateLimit } from "../services/rate-limit";
 import { env } from "@cisco-finance/env/server";
 
-/** Max receipt image size: 5MB decoded. Base64 is ~4/3 larger, so ~6.67MB; use 7MB for the string limit. */
-const MAX_RECEIPT_IMAGE_BASE64_LENGTH = 7 * 1024 * 1024;
+/** Max receipt image size: 1 MB decoded. Base64 is ~4/3 larger. Batches of 5 keep response under 5MB. */
+const MAX_RECEIPT_IMAGE_BASE64_LENGTH = Math.ceil((1024 * 1024) * (4 / 3));
 
 const ACCOUNT_OPTIONS = ["GCash", "GoTyme", "Cash", "BPI"] as const;
 
@@ -214,7 +214,7 @@ export const appRouter = router({
           imageData: z
             .string()
             .min(1, "Please upload a receipt image")
-            .max(MAX_RECEIPT_IMAGE_BASE64_LENGTH, "Image must be 5MB or smaller"),
+            .max(MAX_RECEIPT_IMAGE_BASE64_LENGTH, "Image must be 1 MB or smaller"),
           imageType: z.string().min(1, "Image type is required"),
           notes: z.string().optional(),
           // Reimbursement fields
@@ -691,7 +691,10 @@ export const appRouter = router({
         z.object({
           submitterName: z.string().min(2, "Name must be at least 2 characters"),
           purpose: z.string().min(5, "Please describe what this receipt is for"),
-          imageData: z.string().min(1, "Please upload a receipt image"),
+          imageData: z
+            .string()
+            .min(1, "Please upload a receipt image")
+            .max(MAX_RECEIPT_IMAGE_BASE64_LENGTH, "Image must be 1 MB or smaller"),
           imageType: z.string().min(1, "Image type is required"),
           notes: z.string().optional(),
           cashflowEntryId: z.string(),
@@ -1319,6 +1322,10 @@ export const appRouter = router({
                         amount: true,
                         description: true,
                         date: true,
+                        lineItems: {
+                          select: { id: true, description: true, category: true, amount: true },
+                          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+                        },
                       },
                     },
                   },
@@ -1331,6 +1338,10 @@ export const appRouter = router({
                         amount: true,
                         description: true,
                         date: true,
+                        lineItems: {
+                          select: { id: true, description: true, category: true, amount: true },
+                          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+                        },
                       },
                     },
                   },
@@ -1404,24 +1415,46 @@ export const appRouter = router({
                       ),
                 expenseCount: item.expenses.length,
                 incomeCount: item.incomes.length,
-                expenses: item.expenses.map((exp) => ({
-                  id: exp.id,
-                  cashflowEntryId: exp.cashflowEntryId,
-                  cashflowEntry: {
-                    ...exp.cashflowEntry,
-                    amount: Number(exp.cashflowEntry.amount),
-                  },
-                  createdAt: exp.createdAt,
-                })),
-                incomes: item.incomes.map((inc) => ({
-                  id: inc.id,
-                  cashflowEntryId: inc.cashflowEntryId,
-                  cashflowEntry: {
-                    ...inc.cashflowEntry,
-                    amount: Number(inc.cashflowEntry.amount),
-                  },
-                  createdAt: inc.createdAt,
-                })),
+                expenses: item.expenses.map((exp) => {
+                  const ce = exp.cashflowEntry as typeof exp.cashflowEntry & {
+                    lineItems?: { id: string; description: string; category: string; amount: unknown }[];
+                  };
+                  return {
+                    id: exp.id,
+                    cashflowEntryId: exp.cashflowEntryId,
+                    cashflowEntry: {
+                      ...exp.cashflowEntry,
+                      amount: Number(exp.cashflowEntry.amount),
+                      lineItems: ce.lineItems?.map((li) => ({
+                        id: li.id,
+                        description: li.description,
+                        category: li.category,
+                        amount: Number(li.amount),
+                      })) ?? [],
+                    },
+                    createdAt: exp.createdAt,
+                  };
+                }),
+                incomes: item.incomes.map((inc) => {
+                  const ce = inc.cashflowEntry as typeof inc.cashflowEntry & {
+                    lineItems?: { id: string; description: string; category: string; amount: unknown }[];
+                  };
+                  return {
+                    id: inc.id,
+                    cashflowEntryId: inc.cashflowEntryId,
+                    cashflowEntry: {
+                      ...inc.cashflowEntry,
+                      amount: Number(inc.cashflowEntry.amount),
+                      lineItems: ce.lineItems?.map((li) => ({
+                        id: li.id,
+                        description: li.description,
+                        category: li.category,
+                        amount: Number(li.amount),
+                      })) ?? [],
+                    },
+                    createdAt: inc.createdAt,
+                  };
+                }),
               })),
             };
           }),
@@ -1454,6 +1487,10 @@ export const appRouter = router({
                         accountEntry: {
                           select: { id: true, account: true, description: true },
                         },
+                        lineItems: {
+                          select: { id: true, description: true, category: true, amount: true },
+                          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+                        },
                       },
                     },
                   },
@@ -1469,6 +1506,10 @@ export const appRouter = router({
                         category: true,
                         accountEntry: {
                           select: { id: true, account: true, description: true },
+                        },
+                        lineItems: {
+                          select: { id: true, description: true, category: true, amount: true },
+                          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
                         },
                       },
                     },
@@ -1547,6 +1588,12 @@ export const appRouter = router({
               cashflowEntry: {
                 ...exp.cashflowEntry,
                 amount: Number(exp.cashflowEntry.amount),
+                lineItems: exp.cashflowEntry.lineItems?.map((li) => ({
+                  id: li.id,
+                  description: li.description,
+                  category: li.category,
+                  amount: Number(li.amount),
+                })) ?? [],
               },
               createdAt: exp.createdAt,
             })),
@@ -1556,6 +1603,12 @@ export const appRouter = router({
               cashflowEntry: {
                 ...inc.cashflowEntry,
                 amount: Number(inc.cashflowEntry.amount),
+                lineItems: inc.cashflowEntry.lineItems?.map((li) => ({
+                  id: li.id,
+                  description: li.description,
+                  category: li.category,
+                  amount: Number(li.amount),
+                })) ?? [],
               },
               createdAt: inc.createdAt,
             })),
@@ -1704,6 +1757,24 @@ export const appRouter = router({
       const plannedProjects = projects.filter((p) => p.status === "planned");
       const completedProjects = projects.filter((p) => p.status === "completed");
 
+      // Reserved for projected cashflow: only planned events, and only remaining budget
+      // (planned - actual) so we don't double-count: actual spend is already in net cashflow
+      const reservedForPlanned = plannedProjects.reduce((sum, p) => {
+        const budget = p.items
+          .filter((i) => i.type === "expense")
+          .reduce((iSum, item) => iSum + Number(item.estimatedAmount), 0);
+        const actual = p.items.reduce(
+          (iSum, item) =>
+            iSum +
+            item.expenses.reduce(
+              (eSum, exp) => eSum + Math.abs(Number(exp.cashflowEntry.amount)),
+              0
+            ),
+          0
+        );
+        return sum + Math.max(0, budget - actual);
+      }, 0);
+
       const totalBudget = projects.reduce(
         (sum, p) =>
           sum +
@@ -1771,6 +1842,7 @@ export const appRouter = router({
         totalIncomeBudget,
         totalActual,
         totalActualIncome,
+        reservedForPlanned,
         upcomingEvents,
       };
     }),
@@ -2096,9 +2168,17 @@ export const appRouter = router({
               date: true,
               category: true,
               accountEntry: { select: { account: true } },
+              lineItems: {
+                select: { id: true, description: true, category: true, amount: true },
+                orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+              },
             },
           });
-          return cashflows.map((c) => ({ ...c, amount: Number(c.amount) }));
+          return cashflows.map((c) => ({
+            ...c,
+            amount: Number(c.amount),
+            lineItems: c.lineItems.map((li) => ({ ...li, amount: Number(li.amount) })),
+          }));
         }
 
         const linkedExpenses = await ctx.prisma.budgetItemExpense.findMany({
@@ -2119,10 +2199,18 @@ export const appRouter = router({
             date: true,
             category: true,
             accountEntry: { select: { account: true } },
+            lineItems: {
+              select: { id: true, description: true, category: true, amount: true },
+              orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+            },
           },
         });
 
-        return cashflows.map((c) => ({ ...c, amount: Number(c.amount) }));
+        return cashflows.map((c) => ({
+          ...c,
+          amount: Number(c.amount),
+          lineItems: c.lineItems.map((li) => ({ ...li, amount: Number(li.amount) })),
+        }));
       }),
   }),
 
@@ -2152,6 +2240,15 @@ export const appRouter = router({
             accountEntry: {
               select: { id: true, description: true, account: true },
             },
+            lineItems: {
+              select: {
+                id: true,
+                description: true,
+                category: true,
+                amount: true,
+              },
+              orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+            },
           },
         });
         const nextCursor = entries.length > limit ? entries[limit - 1].id : null;
@@ -2170,6 +2267,12 @@ export const appRouter = router({
             receiptsCount: entry.receipts.length + entry.receiptSubmissions.length,
             accountEntryId: entry.accountEntryId,
             accountEntry: entry.accountEntry,
+            lineItems: entry.lineItems.map((item) => ({
+              id: item.id,
+              description: item.description,
+              category: item.category,
+              amount: Number(item.amount),
+            })),
           })),
           nextCursor,
         };
@@ -2264,6 +2367,15 @@ export const appRouter = router({
             accountEntry: {
               select: { id: true, description: true, account: true },
             },
+            lineItems: {
+              select: {
+                id: true,
+                description: true,
+                category: true,
+                amount: true,
+              },
+              orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+            },
           },
         });
 
@@ -2284,9 +2396,118 @@ export const appRouter = router({
             receiptsCount: entry.receipts.length + entry.receiptSubmissions.length,
             accountEntryId: entry.accountEntryId,
             accountEntry: entry.accountEntry,
+            lineItems: entry.lineItems.map((item) => ({
+              id: item.id,
+              description: item.description,
+              category: item.category,
+              amount: Number(item.amount),
+            })),
           })),
           hasMore,
         };
+      }),
+    // Get line items for a specific cashflow entry
+    getLineItems: whitelistedProcedure
+      .input(z.object({ id: z.string() }))
+      .query(async ({ ctx, input }) => {
+        const items = await ctx.prisma.cashflowLineItem.findMany({
+          where: { cashflowEntryId: input.id },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+          select: {
+            id: true,
+            description: true,
+            category: true,
+            amount: true,
+            notes: true,
+          },
+        });
+        return items.map((item) => ({
+          id: item.id,
+          description: item.description,
+          category: item.category,
+          amount: Number(item.amount),
+          notes: item.notes,
+        }));
+      }),
+    // Replace line items for an entry (validates that the sum equals entry.amount)
+    setLineItems: cashflowEditorProcedure
+      .input(
+        z.object({
+          cashflowEntryId: z.string(),
+          items: z
+            .array(
+              z.object({
+                id: z.string().optional(),
+                description: z.string().min(1),
+                category: z.string().min(1),
+                amount: z.coerce.number(),
+                notes: z.string().optional(),
+              }),
+            )
+            .max(100),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const entry = await ctx.prisma.cashflowEntry.findUnique({
+          where: { id: input.cashflowEntryId },
+          select: { id: true, amount: true, description: true },
+        });
+        if (!entry) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Cashflow entry not found" });
+        }
+
+        const targetAmount = Number(entry.amount);
+        const total = input.items.reduce((sum, item) => sum + item.amount, 0);
+
+        // Use a small epsilon to account for floating point rounding on the client side.
+        const EPSILON = 0.01;
+        if (Math.abs(total - targetAmount) > EPSILON) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Line items do not add up. Expected total ${targetAmount.toFixed(
+              2,
+            )}, got ${total.toFixed(2)}.`,
+          });
+        }
+
+        await ctx.prisma.$transaction(async (tx) => {
+          // Delete existing items for this entry
+          await tx.cashflowLineItem.deleteMany({
+            where: { cashflowEntryId: input.cashflowEntryId },
+          });
+
+          if (input.items.length === 0) return;
+
+          await tx.cashflowLineItem.createMany({
+            data: input.items.map((item) => ({
+              ...(item.id ? { id: item.id } : {}),
+              cashflowEntryId: input.cashflowEntryId,
+              description: item.description,
+              category: item.category,
+              amount: item.amount,
+              notes: item.notes ?? null,
+            })),
+          });
+        });
+
+        await logActivity(
+          ctx.prisma,
+          ctx.session.user.id,
+          "updated",
+          "cashflow_line_item",
+          `updated line items for transaction "${entry.description}"`,
+          entry.id,
+          { lineItemCount: input.items.length, total },
+          ctx.ws,
+        );
+
+        ctx.ws?.emitToUser(ctx.session.user.id, {
+          event: WS_EVENTS.CASHFLOW_UPDATED,
+          action: "updated",
+          entityId: entry.id,
+        });
+
+        return { success: true };
       }),
     // Get receipts for a specific cashflow entry
     getReceipts: whitelistedProcedure
@@ -2370,6 +2591,113 @@ export const appRouter = router({
 
         return entry;
       }),
+    update: cashflowEditorProcedure
+      .input(
+        z.object({
+          id: z.string().min(1),
+          description: z.string().min(2),
+          category: z.string().min(2),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const entry = await ctx.prisma.cashflowEntry.findUnique({
+          where: { id: input.id },
+          select: { id: true, accountEntryId: true },
+        });
+        if (!entry) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Cashflow entry not found." });
+        }
+
+        await ctx.prisma.cashflowEntry.update({
+          where: { id: input.id },
+          data: {
+            description: input.description,
+            category: input.category,
+          },
+        });
+
+        // Keep linked account entry (RBA) in sync: update its description to match
+        if (entry.accountEntryId) {
+          await ctx.prisma.accountEntry.updateMany({
+            where: { id: entry.accountEntryId },
+            data: { description: input.description },
+          });
+          ctx.ws?.emitToUser(ctx.session.user.id, {
+            event: WS_EVENTS.ACCOUNT_ENTRY_UPDATED,
+            action: "updated",
+            entityId: entry.accountEntryId,
+          });
+        }
+
+        await logActivity(
+          ctx.prisma,
+          ctx.session.user.id,
+          "updated",
+          "cashflow_entry",
+          `updated transaction to "${input.description}"`,
+          input.id,
+          { description: input.description, category: input.category },
+          ctx.ws
+        );
+
+        ctx.ws?.emitToUser(ctx.session.user.id, {
+          event: WS_EVENTS.CASHFLOW_UPDATED,
+          action: "updated",
+          entityId: input.id,
+        });
+        ctx.ws?.emitToUser(ctx.session.user.id, {
+          event: WS_EVENTS.STATS_UPDATED,
+          action: "updated",
+        });
+
+        return { updated: true };
+      }),
+    // Sync cashflow entry amounts from linked account entries (e.g. after editing amount on Accounts page)
+    resyncAmountsFromAccounts: cashflowEditorProcedure.mutation(async ({ ctx }) => {
+      const linked = await ctx.prisma.cashflowEntry.findMany({
+        where: { accountEntryId: { not: null }, isActive: true },
+        select: {
+          id: true,
+          amount: true,
+          description: true,
+          accountEntry: { select: { id: true, amount: true } },
+        },
+      });
+      const updatedIds: string[] = [];
+      for (const row of linked) {
+        if (!row.accountEntry) continue;
+        const cfAmount = Number(row.amount);
+        const aeAmount = Number(row.accountEntry.amount);
+        if (cfAmount === aeAmount) continue;
+        await ctx.prisma.cashflowEntry.update({
+          where: { id: row.id },
+          data: { amount: row.accountEntry.amount },
+        });
+        updatedIds.push(row.id);
+        ctx.ws?.emitToUser(ctx.session.user.id, {
+          event: WS_EVENTS.CASHFLOW_UPDATED,
+          action: "updated",
+          entityId: row.id,
+        });
+      }
+      if (updatedIds.length > 0) {
+        await logActivity(
+          ctx.prisma,
+          ctx.session.user.id,
+          "resync_amounts",
+          "cashflow_entry",
+          `resynced ${updatedIds.length} cashflow amount(s) from linked account entries`,
+          undefined,
+          { updatedCount: updatedIds.length, updatedIds },
+          ctx.ws
+        );
+        ctx.ws?.emitToUser(ctx.session.user.id, {
+          event: WS_EVENTS.STATS_UPDATED,
+          action: "updated",
+        });
+      }
+      return { updated: updatedIds.length, updatedIds };
+    }),
     archive: cashflowEditorProcedure
       .input(z.object({ id: z.string().min(1) }))
       .mutation(async ({ ctx, input }) => {
@@ -2450,7 +2778,6 @@ export const appRouter = router({
                 id: true,
                 submitterName: true,
                 purpose: true,
-                imageData: true,
                 imageType: true,
                 createdAt: true,
               },
@@ -2458,6 +2785,10 @@ export const appRouter = router({
             },
             accountEntry: {
               select: { id: true, description: true, account: true },
+            },
+            lineItems: {
+              select: { description: true, category: true, amount: true },
+              orderBy: [{ createdAt: "asc" }, { id: "asc" }],
             },
           },
         });
@@ -2485,6 +2816,11 @@ export const appRouter = router({
           currency: entry.currency,
           receiptsCount: entry.receipts.length + entry.receiptSubmissions.length,
           accountEntry: entry.accountEntry,
+          lineItems: entry.lineItems.map((li) => ({
+            description: li.description,
+            category: li.category,
+            amount: Number(li.amount),
+          })),
         }));
         type ReceiptRow = {
           entryId: string;
@@ -2493,7 +2829,7 @@ export const appRouter = router({
           amount: number;
           receipt: {
             id: string;
-            imageData: string;
+            imageData: string | null;
             imageType: string | null;
             submitterName: string;
             purpose: string;
@@ -2509,7 +2845,7 @@ export const appRouter = router({
               amount: Number(entry.amount),
               receipt: {
                 id: sub.id,
-                imageData: sub.imageData,
+                imageData: null,
                 imageType: sub.imageType,
                 submitterName: sub.submitterName,
                 purpose: sub.purpose,
@@ -2523,6 +2859,25 @@ export const appRouter = router({
           startingCashFlow,
           endingCashFlow,
         };
+      }),
+
+    /** Fetch receipt images by IDs in batches (max 5 per request to stay under 5MB). Used after getReportData/getProjectReportData. */
+    getReportReceiptImages: whitelistedProcedure
+      .input(
+        z.object({
+          receiptIds: z.array(z.string()).min(1).max(5),
+        })
+      )
+      .query(async ({ ctx, input }) => {
+        const submissions = await ctx.prisma.receiptSubmission.findMany({
+          where: { id: { in: input.receiptIds } },
+          select: { id: true, imageData: true, imageType: true },
+        });
+        return submissions.map((s) => ({
+          id: s.id,
+          imageData: s.imageData,
+          imageType: s.imageType,
+        }));
       }),
 
     // Project report: project info, budget plan (expenses + income), expenditures, collected income, receipts in order
@@ -2546,11 +2901,14 @@ export const appRouter = router({
                             id: true,
                             submitterName: true,
                             purpose: true,
-                            imageData: true,
                             imageType: true,
                             createdAt: true,
                           },
                           orderBy: { createdAt: "asc" },
+                        },
+                        lineItems: {
+                          select: { description: true, category: true, amount: true },
+                          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
                         },
                       },
                     },
@@ -2566,11 +2924,14 @@ export const appRouter = router({
                             id: true,
                             submitterName: true,
                             purpose: true,
-                            imageData: true,
                             imageType: true,
                             createdAt: true,
                           },
                           orderBy: { createdAt: "asc" },
+                        },
+                        lineItems: {
+                          select: { description: true, category: true, amount: true },
+                          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
                         },
                       },
                     },
@@ -2588,24 +2949,6 @@ export const appRouter = router({
         const totalIncomeBudget = project.items
           .filter((i) => i.type === "income")
           .reduce((sum, item) => sum + Number(item.estimatedAmount), 0);
-        const totalActual = project.items.reduce(
-          (sum, item) =>
-            sum +
-            item.expenses.reduce(
-              (expSum, exp) => expSum + Math.abs(Number(exp.cashflowEntry.amount)),
-              0
-            ),
-          0
-        );
-        const totalActualIncome = project.items.reduce(
-          (sum, item) =>
-            sum +
-            item.incomes.reduce(
-              (incSum, inc) => incSum + Number(inc.cashflowEntry.amount),
-              0
-            ),
-          0
-        );
 
         const budgetPlanRows = project.items.map((item) => ({
           itemName: item.name,
@@ -2615,12 +2958,14 @@ export const appRouter = router({
           notes: item.notes ?? "",
         }));
 
+        type LineItemRow = { description: string; category: string; amount: number };
         type ExpenditureRow = {
           date: Date;
           budgetItemName: string;
           description: string;
           amount: number;
           cashflowEntryId: string;
+          lineItems?: LineItemRow[];
         };
         type IncomeRow = {
           date: Date;
@@ -2628,6 +2973,7 @@ export const appRouter = router({
           description: string;
           amount: number;
           cashflowEntryId: string;
+          lineItems?: LineItemRow[];
         };
         type ReceiptRow = {
           entryId: string;
@@ -2636,14 +2982,20 @@ export const appRouter = router({
           amount: number;
           receipt: {
             id: string;
-            imageData: string;
+            imageData: string | null;
             imageType: string | null;
             submitterName: string;
             purpose: string;
           };
         };
 
-        const expenseEntries: { date: Date; budgetItemName: string; entry: (typeof project.items)[0]["expenses"][0]["cashflowEntry"] }[] = [];
+        // All cashflow entries from the project (expense + income budget items), sorted by date then name.
+        type EntryWithMeta = {
+          date: Date;
+          budgetItemName: string;
+          entry: (typeof project.items)[0]["expenses"][0]["cashflowEntry"];
+        };
+        const expenseEntries: EntryWithMeta[] = [];
         for (const item of project.items) {
           for (const exp of item.expenses) {
             expenseEntries.push({
@@ -2653,21 +3005,7 @@ export const appRouter = router({
             });
           }
         }
-        expenseEntries.sort(
-          (a, b) =>
-            new Date(a.date).getTime() - new Date(b.date).getTime() ||
-            a.budgetItemName.localeCompare(b.budgetItemName)
-        );
-
-        const expenditureRows: ExpenditureRow[] = expenseEntries.map(({ date, budgetItemName, entry }) => ({
-          date,
-          budgetItemName,
-          description: entry.description,
-          amount: Math.abs(Number(entry.amount)),
-          cashflowEntryId: entry.id,
-        }));
-
-        const incomeEntries: { date: Date; budgetItemName: string; entry: (typeof project.items)[0]["incomes"][0]["cashflowEntry"] }[] = [];
+        const incomeEntries: EntryWithMeta[] = [];
         for (const item of project.items) {
           for (const inc of item.incomes) {
             incomeEntries.push({
@@ -2677,19 +3015,84 @@ export const appRouter = router({
             });
           }
         }
-        incomeEntries.sort(
+        const allEntries: EntryWithMeta[] = [...expenseEntries, ...incomeEntries].sort(
           (a, b) =>
             new Date(a.date).getTime() - new Date(b.date).getTime() ||
             a.budgetItemName.localeCompare(b.budgetItemName)
         );
 
-        const incomeRows: IncomeRow[] = incomeEntries.map(({ date, budgetItemName, entry }) => ({
-          date,
-          budgetItemName,
-          description: entry.description,
-          amount: Number(entry.amount),
-          cashflowEntryId: entry.id,
-        }));
+        // Sign only: positive → Revenue table, negative → Expenses table. No abs; data sign is correct.
+        const incomeRows: IncomeRow[] = [];
+        const expenditureRows: ExpenditureRow[] = [];
+        for (const { date, budgetItemName, entry } of allEntries) {
+          const lineItems = entry.lineItems ?? [];
+          const hasLineItems = lineItems.length > 0;
+
+          if (hasLineItems) {
+            const positive = lineItems.filter((li) => Number(li.amount) > 0);
+            const negative = lineItems.filter((li) => Number(li.amount) < 0);
+            if (positive.length > 0) {
+              incomeRows.push({
+                date,
+                budgetItemName,
+                description: entry.description,
+                amount: positive.reduce((s, li) => s + Number(li.amount), 0),
+                cashflowEntryId: entry.id,
+                lineItems: positive.map((li) => ({
+                  description: li.description,
+                  category: li.category,
+                  amount: Number(li.amount),
+                })),
+              });
+            }
+            if (negative.length > 0) {
+              expenditureRows.push({
+                date,
+                budgetItemName,
+                description: entry.description,
+                amount: negative.reduce((s, li) => s + Number(li.amount), 0),
+                cashflowEntryId: entry.id,
+                lineItems: negative.map((li) => ({
+                  description: li.description,
+                  category: li.category,
+                  amount: Number(li.amount),
+                })),
+              });
+            }
+          } else {
+            const amt = Number(entry.amount);
+            if (amt > 0) {
+              incomeRows.push({
+                date,
+                budgetItemName,
+                description: entry.description,
+                amount: amt,
+                cashflowEntryId: entry.id,
+              });
+            } else if (amt < 0) {
+              expenditureRows.push({
+                date,
+                budgetItemName,
+                description: entry.description,
+                amount: amt,
+                cashflowEntryId: entry.id,
+              });
+            }
+          }
+        }
+        incomeRows.sort(
+          (a, b) =>
+            new Date(a.date).getTime() - new Date(b.date).getTime() ||
+            a.budgetItemName.localeCompare(b.budgetItemName)
+        );
+        expenditureRows.sort(
+          (a, b) =>
+            new Date(a.date).getTime() - new Date(b.date).getTime() ||
+            a.budgetItemName.localeCompare(b.budgetItemName)
+        );
+
+        const totalActualIncome = incomeRows.reduce((s, r) => s + r.amount, 0);
+        const totalActual = expenditureRows.reduce((s, r) => s + r.amount, 0);
 
         const receiptsInOrder: ReceiptRow[] = [];
         for (const { entry } of expenseEntries) {
@@ -2701,7 +3104,7 @@ export const appRouter = router({
               amount: Math.abs(Number(entry.amount)),
               receipt: {
                 id: sub.id,
-                imageData: sub.imageData,
+                imageData: null,
                 imageType: sub.imageType,
                 submitterName: sub.submitterName,
                 purpose: sub.purpose,
@@ -2718,7 +3121,7 @@ export const appRouter = router({
               amount: Number(entry.amount),
               receipt: {
                 id: sub.id,
-                imageData: sub.imageData,
+                imageData: null,
                 imageType: sub.imageType,
                 submitterName: sub.submitterName,
                 purpose: sub.purpose,
