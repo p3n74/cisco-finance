@@ -263,8 +263,8 @@ function RouteComponent() {
       return;
     }
 
-    if (file.size > 625 * 1024) {
-      toast.error("Receipt image must be less than 625 KB");
+    if (file.size > 1024 * 1024) {
+      toast.error("Receipt image must be less than 1 MB");
       return;
     }
 
@@ -1266,7 +1266,7 @@ function RouteComponent() {
                   );
                   // Fetch receipt images in batches to stay under response size limits
                   const receiptIds = data.receiptsInOrder.map((r) => r.receipt.id);
-                  const BATCH = 8; // batch size to balance speed vs 5MB response limit
+                  const BATCH = 5; // batch size to balance speed vs 5MB response limit
                   for (let i = 0; i < receiptIds.length; i += BATCH) {
                     const batch = receiptIds.slice(i, i + BATCH);
                     const images = await queryClient.fetchQuery(
