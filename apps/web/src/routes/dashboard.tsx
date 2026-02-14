@@ -34,7 +34,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { queryClient, trpc } from "@/utils/trpc";
 import { toast } from "sonner";
 import { NotWhitelistedView } from "@/components/not-whitelisted-view";
-import { ArrowDown, ArrowUp, Calendar, FileDown, Filter, Info, Loader2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Calendar, FileDown, Filter, Info, Loader2, RefreshCw } from "lucide-react";
 
 export const Route = createFileRoute("/dashboard")({
   component: RouteComponent,
@@ -340,6 +340,28 @@ function RouteComponent() {
   );
   const totalActivity = unverifiedAmount + totalVerified;
   const deficitRatio = totalActivity === 0 ? 0 : Math.min(Math.abs(deficit) / Math.max(totalActivity, 1), 1);
+
+  // Resync cashflow entry amounts from linked account entries (e.g. after editing amount on Accounts page)
+  const resyncAmountsMutation = useMutation(
+    trpc.cashflowEntries.resyncAmountsFromAccounts.mutationOptions({
+      onSuccess: (result) => {
+        queryClient.invalidateQueries({ queryKey: cashflowQueryOptions.queryKey });
+        queryClient.invalidateQueries({ queryKey: listPageQueryOptions.queryKey });
+        queryClient.invalidateQueries({ queryKey: unverifiedQueryOptions.queryKey });
+        queryClient.invalidateQueries({ queryKey: budgetOverviewQueryOptions.queryKey });
+        if (result.updated > 0) {
+          toast.success(`${result.updated} cashflow amount(s) updated from account entries`);
+        } else {
+          toast.success("Cashflow already in sync");
+        }
+      },
+      onError: () => {
+        toast.error("Failed to resync cashflow amounts");
+      },
+    }),
+  );
+  const resyncing = resyncAmountsMutation.isPending;
+  const handleResyncCashflow = () => resyncAmountsMutation.mutate();
 
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat("en-PH", {
@@ -785,6 +807,29 @@ function RouteComponent() {
               <CardDescription>Your verified transactions</CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <TooltipProvider
+                side="bottom"
+                content={
+                  <p className="text-muted-foreground">
+                    Update each cashflow entry’s amount to match its linked account entry (e.g. after you changed an amount on the Accounts page).
+                  </p>
+                }
+              >
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 border-dashed"
+                  onClick={handleResyncCashflow}
+                  disabled={resyncing}
+                >
+                  {resyncing ? (
+                    <Loader2 className="size-4 shrink-0 animate-spin" />
+                  ) : (
+                    <RefreshCw className="size-4 shrink-0" />
+                  )}
+                  {resyncing ? "Resyncing…" : "Resync"}
+                </Button>
+              </TooltipProvider>
               <Input
                 placeholder="Search by amount or description"
                 className="w-full sm:w-72"

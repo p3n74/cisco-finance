@@ -2652,6 +2652,52 @@ export const appRouter = router({
 
         return { updated: true };
       }),
+    // Sync cashflow entry amounts from linked account entries (e.g. after editing amount on Accounts page)
+    resyncAmountsFromAccounts: cashflowEditorProcedure.mutation(async ({ ctx }) => {
+      const linked = await ctx.prisma.cashflowEntry.findMany({
+        where: { accountEntryId: { not: null }, isActive: true },
+        select: {
+          id: true,
+          amount: true,
+          description: true,
+          accountEntry: { select: { id: true, amount: true } },
+        },
+      });
+      const updatedIds: string[] = [];
+      for (const row of linked) {
+        if (!row.accountEntry) continue;
+        const cfAmount = Number(row.amount);
+        const aeAmount = Number(row.accountEntry.amount);
+        if (cfAmount === aeAmount) continue;
+        await ctx.prisma.cashflowEntry.update({
+          where: { id: row.id },
+          data: { amount: row.accountEntry.amount },
+        });
+        updatedIds.push(row.id);
+        ctx.ws?.emitToUser(ctx.session.user.id, {
+          event: WS_EVENTS.CASHFLOW_UPDATED,
+          action: "updated",
+          entityId: row.id,
+        });
+      }
+      if (updatedIds.length > 0) {
+        await logActivity(
+          ctx.prisma,
+          ctx.session.user.id,
+          "resync_amounts",
+          "cashflow_entry",
+          `resynced ${updatedIds.length} cashflow amount(s) from linked account entries`,
+          undefined,
+          { updatedCount: updatedIds.length, updatedIds },
+          ctx.ws
+        );
+        ctx.ws?.emitToUser(ctx.session.user.id, {
+          event: WS_EVENTS.STATS_UPDATED,
+          action: "updated",
+        });
+      }
+      return { updated: updatedIds.length, updatedIds };
+    }),
     archive: cashflowEditorProcedure
       .input(z.object({ id: z.string().min(1) }))
       .mutation(async ({ ctx, input }) => {
