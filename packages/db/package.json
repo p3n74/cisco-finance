@@ -30,6 +30,7 @@
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
     "db:export": "bun run ./export-db.ts",
+    "db:import": "bun run ./import-db.ts",
     "seed-data": "bun run ./seed-data.ts"
   }
 }
