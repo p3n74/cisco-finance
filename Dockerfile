@@ -32,7 +32,7 @@ ENV NODE_ENV=production
 
 # Google Cloud Run sets PORT environment variable automatically
 # The app will use PORT if set, otherwise defaults to 3000
-ENV PORT=3000
+ENV PORT=3002
 
 WORKDIR /app
 
@@ -40,7 +40,7 @@ WORKDIR /app
 COPY --from=builder /app /app
 
 # Expose port (Cloud Run will use PORT env var, but this is for documentation)
-EXPOSE 3000
+EXPOSE 3002
 
 # Health check for Cloud Run (optional but recommended)
 # Note: Cloud Run has its own health checks, this is just for Docker
