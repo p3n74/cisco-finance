@@ -34,6 +34,7 @@
     "db:studio": "turbo -F @cisco-finance/db db:studio",
     "db:generate": "turbo -F @cisco-finance/db db:generate",
     "db:migrate": "turbo -F @cisco-finance/db db:migrate",
+    "db:export": "turbo -F @cisco-finance/db db:export",
     "check": "biome check --write .",
     "start:prod": "pm2 start ecosystem.config.cjs --env production",
     "pm2:save": "pm2 save",
