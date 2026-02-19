@@ -30,10 +30,11 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { downloadPdfReport } from "@/lib/pdf-report";
+import { buttonVariants } from "@/components/ui/button";
 import { queryClient, trpc } from "@/utils/trpc";
 import { toast } from "sonner";
 import { NotWhitelistedView } from "@/components/not-whitelisted-view";
-import { ArrowDown, ArrowUp, Calendar, FileDown, Filter, Info, Loader2 } from "lucide-react";
+import { ArrowDown, ArrowUp, Calendar, FileDown, Filter, Info, Loader2, RefreshCw } from "lucide-react";
 
 export const Route = createFileRoute("/dashboard")({
   component: RouteComponent,
@@ -262,6 +263,11 @@ function RouteComponent() {
       return;
     }
 
+    if (file.size > 1024 * 1024) {
+      toast.error("Receipt image must be less than 1 MB");
+      return;
+    }
+
     const reader = new FileReader();
     reader.onloadend = () => {
       const base64 = reader.result as string;
@@ -301,6 +307,7 @@ function RouteComponent() {
   type TableEntry = (typeof tableItems)[number];
   const [attachingToEntry, setAttachingToEntry] = useState<TableEntry | null>(null);
   const [viewingEntry, setViewingEntry] = useState<TableEntry | null>(null);
+  const [detailEntry, setDetailEntry] = useState<TableEntry | null>(null);
   useEffect(() => {
     if (!attachingToEntryId) setAttachingToEntry(null);
   }, [attachingToEntryId]);
@@ -318,7 +325,8 @@ function RouteComponent() {
   const budgetedExpenditures = budgetOverview?.totalBudget ?? 0;
   const actualExpenditures = budgetOverview?.totalActual ?? 0;
   const remainingBudget = Math.max(0, budgetedExpenditures - actualExpenditures);
-  const projectedCashflow = netCashflow - remainingBudget;
+  const reservedForPlanned = budgetOverview?.reservedForPlanned ?? 0;
+  const projectedCashflow = netCashflow - reservedForPlanned;
   
   const unverifiedNet = unverifiedEntries.reduce((sum, e) => sum + e.amount, 0);
   const netMovement = netCashflow + unverifiedNet;
@@ -334,6 +342,28 @@ function RouteComponent() {
   const totalActivity = unverifiedAmount + totalVerified;
   const deficitRatio = totalActivity === 0 ? 0 : Math.min(Math.abs(deficit) / Math.max(totalActivity, 1), 1);
 
+  // Resync cashflow entry amounts from linked account entries (e.g. after editing amount on Accounts page)
+  const resyncAmountsMutation = useMutation(
+    trpc.cashflowEntries.resyncAmountsFromAccounts.mutationOptions({
+      onSuccess: (result) => {
+        queryClient.invalidateQueries({ queryKey: cashflowQueryOptions.queryKey });
+        queryClient.invalidateQueries({ queryKey: listPageQueryOptions.queryKey });
+        queryClient.invalidateQueries({ queryKey: unverifiedQueryOptions.queryKey });
+        queryClient.invalidateQueries({ queryKey: budgetOverviewQueryOptions.queryKey });
+        if (result.updated > 0) {
+          toast.success(`${result.updated} cashflow amount(s) updated from account entries`);
+        } else {
+          toast.success("Cashflow already in sync");
+        }
+      },
+      onError: () => {
+        toast.error("Failed to resync cashflow amounts");
+      },
+    }),
+  );
+  const resyncing = resyncAmountsMutation.isPending;
+  const handleResyncCashflow = () => resyncAmountsMutation.mutate();
+
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat("en-PH", {
       style: "currency",
@@ -342,6 +372,82 @@ function RouteComponent() {
     }).format(value);
 
   const currentReceipt = receipts[viewingReceiptIndex];
+
+  // Edit description/category state
+  const [editingCashflowEntry, setEditingCashflowEntry] = useState<TableEntry | null>(null);
+  const [editForm, setEditForm] = useState({ description: "", category: "" });
+
+  const updateCashflowMutation = useMutation(
+    trpc.cashflowEntries.update.mutationOptions({
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: cashflowQueryOptions.queryKey });
+        queryClient.invalidateQueries({ queryKey: listPageQueryOptions.queryKey });
+        queryClient.invalidateQueries({
+          predicate: (query) =>
+            Array.isArray(query.queryKey[0]) &&
+            query.queryKey[0][0] === "accountEntries",
+        });
+        setEditingCashflowEntry(null);
+        toast.success("Transaction updated");
+      },
+      onError: (err) => {
+        toast.error(err.message ?? "Failed to update transaction");
+      },
+    }),
+  );
+
+  // Line item state
+  const [editingLineItemsEntry, setEditingLineItemsEntry] = useState<TableEntry | null>(null);
+  const [lineItemsDraft, setLineItemsDraft] = useState<
+    { id?: string; description: string; category: string; amount: string; notes?: string }[]
+  >([]);
+  const [lineItemsLoading, setLineItemsLoading] = useState(false);
+
+  const loadLineItems = async (entryId: string) => {
+    setLineItemsLoading(true);
+    try {
+      const items = await queryClient.fetchQuery(
+        trpc.cashflowEntries.getLineItems.queryOptions({ id: entryId }),
+      );
+      setLineItemsDraft(
+        items.length > 0
+          ? items.map((item) => ({
+              id: item.id,
+              description: item.description,
+              category: item.category,
+              amount: item.amount.toString(),
+              notes: item.notes ?? "",
+            }))
+          : [
+              {
+                description: "",
+                category: "",
+                amount: "",
+              },
+            ],
+      );
+    } finally {
+      setLineItemsLoading(false);
+    }
+  };
+
+  const setLineItemsMutation = useMutation(
+    trpc.cashflowEntries.setLineItems.mutationOptions({
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: cashflowQueryOptions.queryKey });
+        queryClient.invalidateQueries({ queryKey: listPageQueryOptions.queryKey });
+        setEditingLineItemsEntry(null);
+      },
+      onError: (error) => {
+        toast.error(error.message || "Failed to save line items");
+      },
+    }),
+  );
+
+  const lineItemsTotal = lineItemsDraft.reduce((sum, item) => {
+    const n = Number(item.amount);
+    return sum + (Number.isFinite(n) ? n : 0);
+  }, 0);
 
   return (
     <div className="mx-auto flex w-full max-w-6xl min-w-0 flex-col gap-4 px-3 py-4 sm:gap-6 sm:px-4 sm:py-6">
@@ -570,9 +676,9 @@ function RouteComponent() {
           </CardHeader>
           <CardContent>
             <p className="text-xs text-muted-foreground">
-              Net minus remaining budgeted expenditures
-              {budgetOverview && remainingBudget > 0
-                ? ` (${formatCurrency(remainingBudget)} remaining)`
+              Net minus reserved for planned events
+              {budgetOverview && reservedForPlanned > 0
+                ? ` (${formatCurrency(reservedForPlanned)} reserved)`
                 : ""}
             </p>
           </CardContent>
@@ -699,9 +805,32 @@ function RouteComponent() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle>Cashflow Activity</CardTitle>
-              <CardDescription>Your verified transactions</CardDescription>
+              <CardDescription>Your verified transactions. Click a row for details.</CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <TooltipProvider
+                side="bottom"
+                content={
+                  <p className="text-muted-foreground">
+                    Update each cashflow entry’s amount to match its linked account entry (e.g. after you changed an amount on the Accounts page).
+                  </p>
+                }
+              >
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 border-dashed"
+                  onClick={handleResyncCashflow}
+                  disabled={resyncing}
+                >
+                  {resyncing ? (
+                    <Loader2 className="size-4 shrink-0 animate-spin" />
+                  ) : (
+                    <RefreshCw className="size-4 shrink-0" />
+                  )}
+                  {resyncing ? "Resyncing…" : "Resync"}
+                </Button>
+              </TooltipProvider>
               <Input
                 placeholder="Search by amount or description"
                 className="w-full sm:w-72"
@@ -896,8 +1025,17 @@ function RouteComponent() {
                   return (
                     <tr
                       key={entry.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setDetailEntry(entry)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setDetailEntry(entry);
+                        }
+                      }}
                       className={cn(
-                        "border-b border-border/30 last:border-0 transition-colors hover:bg-muted/20",
+                        "border-b border-border/30 last:border-0 transition-colors hover:bg-muted/20 cursor-pointer",
                         hasAccountEntry && "bg-emerald-500/5",
                         noReceipt && "bg-red-500/5"
                       )}
@@ -945,35 +1083,79 @@ function RouteComponent() {
                         )}
                       </td>
                       <td className="px-5 py-4">
-                        <div className="flex items-center gap-2">
-                          <span className="text-muted-foreground">
-                            {entry.receiptsCount} file{entry.receiptsCount === 1 ? "" : "s"}
-                          </span>
-                          {entry.receiptsCount > 0 && (
-                            <Button 
-                              size="xs" 
-                              variant="ghost"
-                              onClick={() => {
-                                setViewingReceiptsEntryId(entry.id);
-                                setViewingEntry(entry);
-                                setViewingReceiptIndex(0);
-                              }}
-                            >
-                              View
-                            </Button>
-                          )}
-                          {canEditDashboard && (
-                            <Button 
-                              size="xs" 
-                              variant="ghost"
-                              onClick={() => {
-                                setAttachingToEntryId(entry.id);
-                                setAttachingToEntry(entry);
-                              }}
-                            >
-                              Attach
-                            </Button>
-                          )}
+                          <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-muted-foreground">
+                              {entry.receiptsCount} file{entry.receiptsCount === 1 ? "" : "s"}
+                            </span>
+                            {entry.receiptsCount > 0 && (
+                              <Button
+                                size="xs"
+                                variant="ghost"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setViewingReceiptsEntryId(entry.id);
+                                  setViewingEntry(entry);
+                                  setViewingReceiptIndex(0);
+                                }}
+                              >
+                                View
+                              </Button>
+                            )}
+                            {canEditDashboard && (
+                              <>
+                                <Button
+                                  size="xs"
+                                  variant="ghost"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setAttachingToEntryId(entry.id);
+                                    setAttachingToEntry(entry);
+                                  }}
+                                >
+                                  Attach
+                                </Button>
+                                <Button
+                                  size="xs"
+                                  variant="ghost"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setEditingCashflowEntry(entry);
+                                    setEditForm({
+                                      description: entry.description,
+                                      category: entry.category,
+                                    });
+                                  }}
+                                >
+                                  Edit
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {Array.isArray(entry.lineItems) && entry.lineItems.length > 0 ? (
+                              <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                                {entry.lineItems.length} item{entry.lineItems.length === 1 ? "" : "s"}
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                                No breakdown
+                              </span>
+                            )}
+                            {canEditDashboard && (
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingLineItemsEntry(entry);
+                                  void loadLineItems(entry.id);
+                                }}
+                              >
+                                Breakdown
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       </td>
                     </tr>
@@ -985,6 +1167,206 @@ function RouteComponent() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Entry detail popup — click a row to open */}
+      <Dialog open={!!detailEntry} onOpenChange={(open) => !open && setDetailEntry(null)}>
+        <DialogPopup className="max-w-xl">
+          {detailEntry && (
+            <>
+              <DialogHeader className="text-left">
+                <DialogTitle className="pr-8 text-lg leading-tight">
+                  {detailEntry.description}
+                </DialogTitle>
+                <DialogDescription className="text-left">
+                  <span
+                    className={cn(
+                      "font-semibold tabular-nums",
+                      detailEntry.amount >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
+                    )}
+                  >
+                    {formatCurrency(detailEntry.amount)}
+                  </span>
+                  <span className="text-muted-foreground ml-2">
+                    · {new Date(detailEntry.date).toLocaleDateString("en-PH", { weekday: "short", year: "numeric", month: "short", day: "numeric" })}
+                  </span>
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="mt-5 space-y-4">
+                {/* Overview */}
+                <div className="rounded-xl border border-border/60 bg-muted/20 p-4">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Overview
+                  </p>
+                  <dl className="grid gap-2 text-sm">
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-muted-foreground">Category</dt>
+                      <dd>
+                        <span className="rounded-md bg-muted px-2 py-0.5 font-medium">
+                          {detailEntry.category}
+                        </span>
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-muted-foreground">Account</dt>
+                      <dd className="font-medium">
+                        {detailEntry.accountEntry?.account ?? "—"}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-muted-foreground">Status</dt>
+                      <dd>
+                        {detailEntry.receiptsCount === 0 ? (
+                          <span className="inline-flex items-center rounded-full bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-600 dark:text-red-400">
+                            No receipt
+                          </span>
+                        ) : detailEntry.accountEntryId ? (
+                          <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                            Verified
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                            Manual entry
+                          </span>
+                        )}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-muted-foreground">Entry ID</dt>
+                      <dd className="font-mono text-xs text-muted-foreground">
+                        #{detailEntry.id.slice(0, 8)}
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
+
+                {/* Source (linked account entry) */}
+                {detailEntry.accountEntry && (
+                  <div className="rounded-xl border border-border/60 bg-emerald-500/5 p-4">
+                    <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
+                      Linked account transaction
+                    </p>
+                    <p className="text-sm">
+                      <span className="font-medium">{detailEntry.accountEntry.account}</span>
+                      <span className="text-muted-foreground"> — </span>
+                      {detailEntry.accountEntry.description}
+                    </p>
+                  </div>
+                )}
+
+                {/* Line items */}
+                {Array.isArray(detailEntry.lineItems) && detailEntry.lineItems.length > 0 && (
+                  <div className="rounded-xl border border-border/60 bg-muted/20 p-4">
+                    <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Breakdown ({detailEntry.lineItems.length} item{detailEntry.lineItems.length === 1 ? "" : "s"})
+                    </p>
+                    <div className="space-y-2">
+                      {detailEntry.lineItems.map((item) => (
+                        <div
+                          key={item.id}
+                          className="flex items-center justify-between gap-4 rounded-lg border border-border/40 bg-background/60 px-3 py-2 text-sm"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium truncate">{item.description}</p>
+                            <p className="text-xs text-muted-foreground">{item.category}</p>
+                          </div>
+                          <span className={cn(
+                            "shrink-0 tabular-nums font-medium",
+                            item.amount >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
+                          )}>
+                            {formatCurrency(item.amount)}
+                          </span>
+                        </div>
+                      ))}
+                      <div className="flex justify-between border-t border-border/60 pt-2 text-sm font-semibold">
+                        <span>Total</span>
+                        <span className={cn(
+                          "tabular-nums",
+                          detailEntry.amount >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
+                        )}>
+                          {formatCurrency(detailEntry.amount)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Receipts */}
+                <div className="rounded-xl border border-border/60 bg-muted/20 p-4">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Receipts
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm text-muted-foreground">
+                      {detailEntry.receiptsCount} file{detailEntry.receiptsCount === 1 ? "" : "s"} attached
+                    </span>
+                    {detailEntry.receiptsCount > 0 && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setDetailEntry(null);
+                          setViewingReceiptsEntryId(detailEntry.id);
+                          setViewingEntry(detailEntry);
+                          setViewingReceiptIndex(0);
+                        }}
+                      >
+                        View receipts
+                      </Button>
+                    )}
+                    {canEditDashboard && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setDetailEntry(null);
+                          setAttachingToEntryId(detailEntry.id);
+                          setAttachingToEntry(detailEntry);
+                        }}
+                      >
+                        {detailEntry.receiptsCount > 0 ? "Attach more" : "Attach receipt"}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <DialogFooter className="mt-6 flex-wrap gap-2">
+                <DialogClose asChild>
+                  <Button variant="outline">Close</Button>
+                </DialogClose>
+                {canEditDashboard && (
+                  <>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setDetailEntry(null);
+                        setEditingCashflowEntry(detailEntry);
+                        setEditForm({
+                          description: detailEntry.description,
+                          category: detailEntry.category,
+                        });
+                      }}
+                    >
+                      Edit
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setDetailEntry(null);
+                        setEditingLineItemsEntry(detailEntry);
+                        void loadLineItems(detailEntry.id);
+                      }}
+                    >
+                      Breakdown
+                    </Button>
+                  </>
+                )}
+              </DialogFooter>
+            </>
+          )}
+        </DialogPopup>
+      </Dialog>
 
       {/* Full-page loading overlay when order/search/filter changes */}
       {isTableLoading && (
@@ -1118,6 +1500,69 @@ function RouteComponent() {
         </DialogPopup>
       </Dialog>
 
+      {/* Edit description & category dialog */}
+      <Dialog
+        open={editingCashflowEntry != null}
+        onOpenChange={(open) => {
+          if (!open) setEditingCashflowEntry(null);
+        }}
+      >
+        <DialogPopup className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit transaction</DialogTitle>
+            <DialogDescription>
+              Update description and category. If this transaction was verified from an account entry, the account entry description will be updated to match.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-desc">Description</Label>
+              <Input
+                id="edit-desc"
+                value={editForm.description}
+                onChange={(e) =>
+                  setEditForm((prev) => ({ ...prev, description: e.target.value }))
+                }
+                placeholder="Transaction description"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-cat">Category</Label>
+              <Input
+                id="edit-cat"
+                value={editForm.category}
+                onChange={(e) =>
+                  setEditForm((prev) => ({ ...prev, category: e.target.value }))
+                }
+                placeholder="Category"
+              />
+            </div>
+          </div>
+          <DialogFooter className="mt-6">
+            <DialogClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button
+              disabled={
+                updateCashflowMutation.isPending ||
+                editForm.description.trim().length < 2 ||
+                editForm.category.trim().length < 2
+              }
+              onClick={() => {
+                if (!editingCashflowEntry) return;
+                updateCashflowMutation.mutate({
+                  id: editingCashflowEntry.id,
+                  description: editForm.description.trim(),
+                  category: editForm.category.trim(),
+                });
+              }}
+            >
+              {updateCashflowMutation.isPending ? "Saving..." : "Save changes"}
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
+
       {/* PDF Report Dialog */}
       <Dialog open={pdfDialogOpen} onOpenChange={setPdfDialogOpen}>
         <DialogPopup className="max-w-sm">
@@ -1162,9 +1607,9 @@ function RouteComponent() {
           </div>
           <DialogFooter className="mt-6">
             <DialogClose asChild>
-              <Button type="button" variant="outline">
+              <button type="button" className={buttonVariants({ variant: "outline" })}>
                 Cancel
-              </Button>
+              </button>
             </DialogClose>
             <Button
               disabled={pdfGenerating || isPdfOnCooldown}
@@ -1179,6 +1624,20 @@ function RouteComponent() {
                       dateSort: "desc",
                     })
                   );
+                  // Fetch receipt images in batches to stay under response size limits
+                  const receiptIds = data.receiptsInOrder.map((r) => r.receipt.id);
+                  const BATCH = 5; // batch size to balance speed vs 5MB response limit
+                  for (let i = 0; i < receiptIds.length; i += BATCH) {
+                    const batch = receiptIds.slice(i, i + BATCH);
+                    const images = await queryClient.fetchQuery(
+                      trpc.report.getReportReceiptImages.queryOptions({ receiptIds: batch })
+                    );
+                    const byId = new Map(images.map((img) => [img.id, img]));
+                    for (const row of data.receiptsInOrder) {
+                      const img = byId.get(row.receipt.id);
+                      if (img) row.receipt.imageData = img.imageData;
+                    }
+                  }
                   downloadPdfReport(data, {
                     dateFrom: pdfDateFrom.trim() || undefined,
                     dateTo: pdfDateTo.trim() || undefined,
@@ -1396,6 +1855,178 @@ function RouteComponent() {
               </form>
             )}
           </div>
+        </DialogPopup>
+      </Dialog>
+
+      {/* Line Items Breakdown Dialog */}
+      <Dialog
+        open={!!editingLineItemsEntry}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingLineItemsEntry(null);
+          }
+        }}
+      >
+        <DialogPopup className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Breakdown transaction</DialogTitle>
+            <DialogDescription>
+              {editingLineItemsEntry
+                ? `${editingLineItemsEntry.description} — ${formatCurrency(editingLineItemsEntry.amount)}`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          {editingLineItemsEntry ? (
+            <div className="mt-4 space-y-4">
+              <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs">
+                <div className="space-y-0.5">
+                  <p className="text-muted-foreground">Parent amount</p>
+                  <p className="font-semibold">
+                    {formatCurrency(editingLineItemsEntry.amount)}
+                  </p>
+                </div>
+                <div className="space-y-0.5 text-right">
+                  <p className="text-muted-foreground">Line items total</p>
+                  <p
+                    className={cn(
+                      "font-semibold",
+                      Math.abs(lineItemsTotal - editingLineItemsEntry.amount) < 0.01
+                        ? "text-emerald-500"
+                        : "text-rose-500",
+                    )}
+                  >
+                    {formatCurrency(lineItemsTotal)}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {Math.abs(lineItemsTotal - editingLineItemsEntry.amount) < 0.01
+                      ? "Balanced"
+                      : "Does not add up"}
+                  </p>
+                </div>
+              </div>
+
+              {lineItemsLoading ? (
+                <div className="py-8 text-center text-muted-foreground text-sm">
+                  Loading line items…
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-[2fr_2fr_1fr_auto] gap-2 text-xs font-medium text-muted-foreground">
+                    <span>Description</span>
+                    <span>Category</span>
+                    <span className="text-right">Amount</span>
+                    <span />
+                  </div>
+                  <div className="space-y-2">
+                    {lineItemsDraft.map((item, index) => (
+                      <div
+                        key={item.id ?? index}
+                        className="grid grid-cols-[2fr_2fr_1fr_auto] gap-2 items-center"
+                      >
+                        <Input
+                          placeholder="Description"
+                          value={item.description}
+                          onChange={(e) => {
+                            const next = [...lineItemsDraft];
+                            next[index] = { ...next[index], description: e.target.value };
+                            setLineItemsDraft(next);
+                          }}
+                        />
+                        <Input
+                          placeholder="Category"
+                          value={item.category}
+                          onChange={(e) => {
+                            const next = [...lineItemsDraft];
+                            next[index] = { ...next[index], category: e.target.value };
+                            setLineItemsDraft(next);
+                          }}
+                        />
+                        <Input
+                          className="text-right"
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={item.amount}
+                          onChange={(e) => {
+                            const next = [...lineItemsDraft];
+                            next[index] = { ...next[index], amount: e.target.value };
+                            setLineItemsDraft(next);
+                          }}
+                        />
+                        <div className="flex items-center gap-1 justify-end">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => {
+                              setLineItemsDraft((prev) =>
+                                prev.length <= 1 ? prev : prev.filter((_, i) => i !== index),
+                              );
+                            }}
+                            disabled={lineItemsDraft.length <= 1}
+                          >
+                            ×
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="pt-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setLineItemsDraft((prev) => [
+                          ...prev,
+                          { description: "", category: "", amount: "" },
+                        ])
+                      }
+                    >
+                      Add item
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : null}
+          <DialogFooter className="mt-6">
+            <DialogClose asChild>
+              <Button type="button" variant="outline">
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button
+              type="button"
+              disabled={
+                !editingLineItemsEntry ||
+                lineItemsDraft.some(
+                  (item) =>
+                    !item.description.trim() ||
+                    !item.category.trim() ||
+                    item.amount === "",
+                ) ||
+                Math.abs(lineItemsTotal - (editingLineItemsEntry?.amount ?? 0)) >= 0.01 ||
+                setLineItemsMutation.isPending
+              }
+              onClick={() => {
+                if (!editingLineItemsEntry) return;
+                setLineItemsMutation.mutate({
+                  cashflowEntryId: editingLineItemsEntry.id,
+                  items: lineItemsDraft.map((item) => ({
+                    id: item.id,
+                    description: item.description,
+                    category: item.category,
+                    amount: Number(item.amount),
+                    notes: item.notes || undefined,
+                  })),
+                });
+              }}
+            >
+              {setLineItemsMutation.isPending ? "Saving..." : "Save breakdown"}
+            </Button>
+          </DialogFooter>
         </DialogPopup>
       </Dialog>
     </div>
