@@ -2,11 +2,17 @@
  * In-memory rate limiter for public endpoints (e.g. receipt submission).
  * Uses a sliding window per key (e.g. client IP).
  *
+ * This is intentionally configured to be very permissive so that the app
+ * can fully utilize available hardware while still having a basic guard
+ * against obvious abuse.
+ *
  * Note: Resets on server restart. For multi-instance deployments, use Redis or similar.
  */
 
-const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
-const MAX_REQUESTS = 10;
+// 1-minute window with a very high request cap effectively removes
+// end-user rate limiting while preventing trivial accidental DoS.
+const WINDOW_MS = 60 * 1000; // 1 minute
+const MAX_REQUESTS = 1_000;
 
 const store = new Map<string, { count: number; resetAt: number }>();
 
