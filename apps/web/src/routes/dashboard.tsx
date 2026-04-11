@@ -1,2034 +1,2441 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
-
-import { useDebouncedValue } from "@/hooks/useDebouncedValue";
-import { authClient } from "@/lib/auth-client";
-import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Dialog,
-  DialogClose,
-  DialogPopup,
-  DialogHeader,
-  DialogFooter,
-  DialogTitle,
-  DialogDescription,
+	ArrowDown,
+	ArrowUp,
+	Calendar,
+	FileDown,
+	Filter,
+	Info,
+	Loader2,
+	RefreshCw,
+} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+import { NotWhitelistedView } from "@/components/not-whitelisted-view";
+import { Button, buttonVariants } from "@/components/ui/button";
+import {
+	Card,
+	CardContent,
+	CardDescription,
+	CardHeader,
+	CardTitle,
+} from "@/components/ui/card";
+import {
+	Dialog,
+	DialogClose,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogPopup,
+	DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuLabel,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuGroup,
+	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { authClient } from "@/lib/auth-client";
 import { downloadPdfReport } from "@/lib/pdf-report";
-import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { queryClient, trpc } from "@/utils/trpc";
-import { toast } from "sonner";
-import { NotWhitelistedView } from "@/components/not-whitelisted-view";
-import { ArrowDown, ArrowUp, Calendar, FileDown, Filter, Info, Loader2, RefreshCw } from "lucide-react";
 
 export const Route = createFileRoute("/dashboard")({
-  component: RouteComponent,
-  beforeLoad: async () => {
-    const session = await authClient.getSession();
-    if (!session.data) {
-      redirect({
-        to: "/",
-        throw: true,
-      });
-    }
-    return { session };
-  },
+	component: RouteComponent,
+	beforeLoad: async () => {
+		const session = await authClient.getSession();
+		if (!session.data) {
+			redirect({
+				to: "/",
+				throw: true,
+			});
+		}
+		return { session };
+	},
 });
 
 type StatusFilterValue = "all" | "no_receipt" | "verified" | "manual";
 
 function RouteComponent() {
-  const { session } = Route.useRouteContext();
-  const navigate = useNavigate();
-
-  // Whitelist check: only whitelisted users can view finances
-  const roleQueryOptions = trpc.team.getMyRole.queryOptions();
-  const roleQuery = useQuery(roleQueryOptions);
-  const isWhitelisted = (roleQuery.data?.role ?? null) !== null;
-  const canEditDashboard =
-    roleQuery.data?.role === "VP_FINANCE" || roleQuery.data?.role === "AUDITOR";
-
-  if (roleQuery.isLoading) {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center">
-        <Loader2 className="size-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-  if (roleQuery.isSuccess && !isWhitelisted) {
-    return <NotWhitelistedView />;
-  }
-
-  const cashflowQueryOptions = trpc.cashflowEntries.list.queryOptions({
-    limit: 100,
-  });
-  const cashflowQuery = useQuery({ ...cashflowQueryOptions, enabled: isWhitelisted });
-
-  // Table uses server-side pagination (listPage); stats use list(100)
-  const PAGE_SIZE = 20;
-  const [page, setPage] = useState(1);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilterValue>("all");
-  const [dateFilterMode, setDateFilterMode] = useState<"all" | "single" | "range">("all");
-  const [dateSingle, setDateSingle] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const [dateSort, setDateSort] = useState<"desc" | "asc">("desc");
-  const debouncedSearch = useDebouncedValue(searchQuery.trim(), 300);
-
-  const listPageQueryOptions = trpc.cashflowEntries.listPage.queryOptions({
-    limit: PAGE_SIZE,
-    offset: (page - 1) * PAGE_SIZE,
-    search: debouncedSearch || undefined,
-    statusFilter,
-    dateFrom: dateFilterMode === "range" && dateFrom ? dateFrom : undefined,
-    dateTo: dateFilterMode === "range" && dateTo ? dateTo : undefined,
-    dateSingle: dateFilterMode === "single" && dateSingle ? dateSingle : undefined,
-    dateSort,
-  });
-  const listPageQuery = useQuery({ ...listPageQueryOptions, enabled: isWhitelisted });
-  const tableItems = listPageQuery.data?.items ?? [];
-  const hasMore = listPageQuery.data?.hasMore ?? false;
-
-  const unverifiedQueryOptions = trpc.accountEntries.listUnverified.queryOptions();
-  const unverifiedQuery = useQuery({ ...unverifiedQueryOptions, enabled: isWhitelisted });
-  
-  const unboundReceiptsQueryOptions = trpc.receiptSubmission.countUnbound.queryOptions();
-  const unboundReceiptsQuery = useQuery({ ...unboundReceiptsQueryOptions, enabled: isWhitelisted });
-  const unboundReceiptsCount = unboundReceiptsQuery.data?.count ?? 0;
-
-  const budgetOverviewQueryOptions = trpc.budgetProjects.overview.queryOptions();
-  const budgetOverviewQuery = useQuery({ ...budgetOverviewQueryOptions, enabled: isWhitelisted });
-  const budgetOverview = budgetOverviewQuery.data;
-
-  const unboundListQueryOptions = trpc.receiptSubmission.listUnbound.queryOptions();
-  const unboundListQuery = useQuery({ ...unboundListQueryOptions, enabled: isWhitelisted });
-  const unboundReceipts = unboundListQuery.data ?? [];
-  
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [formState, setFormState] = useState({
-    description: "",
-    category: "",
-    accountEntryId: "",
-  });
-
-  // Attach receipt state
-  const [attachingToEntryId, setAttachingToEntryId] = useState<string | null>(null);
-  const [attachMode, setAttachMode] = useState<"select" | "upload">("select");
-  const [selectedReceiptId, setSelectedReceiptId] = useState<string>("");
-  const [uploadForm, setUploadForm] = useState({
-    submitterName: session.data?.user?.name ?? "",
-    purpose: "",
-    notes: "",
-  });
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [imageData, setImageData] = useState<string>("");
-  const [imageType, setImageType] = useState<string>("");
-
-  // View receipts state
-  const [viewingReceiptsEntryId, setViewingReceiptsEntryId] = useState<string | null>(null);
-  const [viewingReceiptIndex, setViewingReceiptIndex] = useState<number>(0);
-
-  // PDF report dialog and cooldown (5 min whole cashflow, 2 min if >100 items)
-  const PDF_COOLDOWN_KEY = "cisco-finance-pdf-cooldown-end";
-  const [pdfDialogOpen, setPdfDialogOpen] = useState(false);
-  const [pdfDateFrom, setPdfDateFrom] = useState("");
-  const [pdfDateTo, setPdfDateTo] = useState("");
-  const [pdfGenerating, setPdfGenerating] = useState(false);
-  const [pdfCooldownEnd, setPdfCooldownEnd] = useState<number | null>(() => {
-    if (typeof sessionStorage === "undefined") return null;
-    const stored = sessionStorage.getItem(PDF_COOLDOWN_KEY);
-    const end = stored ? Number(stored) : NaN;
-    return Number.isFinite(end) && end > Date.now() ? end : null;
-  });
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (pdfCooldownEnd == null) return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [pdfCooldownEnd]);
-  useEffect(() => {
-    if (pdfCooldownEnd != null) {
-      sessionStorage.setItem(PDF_COOLDOWN_KEY, String(pdfCooldownEnd));
-    } else {
-      sessionStorage.removeItem(PDF_COOLDOWN_KEY);
-    }
-  }, [pdfCooldownEnd]);
-  useEffect(() => {
-    if (pdfCooldownEnd != null && now >= pdfCooldownEnd) setPdfCooldownEnd(null);
-  }, [pdfCooldownEnd, now]);
-  const pdfCooldownRemaining = pdfCooldownEnd != null && pdfCooldownEnd > now ? pdfCooldownEnd - now : 0;
-  const pdfCooldownMinutes = Math.floor(pdfCooldownRemaining / 60000);
-  const pdfCooldownSeconds = Math.floor((pdfCooldownRemaining % 60000) / 1000);
-  const pdfCooldownLabel =
-    pdfCooldownRemaining > 0
-      ? `${pdfCooldownMinutes}:${pdfCooldownSeconds.toString().padStart(2, "0")} cooldown`
-      : null;
-  const isPdfOnCooldown = pdfCooldownRemaining > 0;
-
-  const receiptsQueryOptions = trpc.cashflowEntries.getReceipts.queryOptions(
-    { id: viewingReceiptsEntryId ?? "" },
-    { enabled: !!viewingReceiptsEntryId }
-  );
-  const receiptsQuery = useQuery(receiptsQueryOptions);
-  const receipts = receiptsQuery.data ?? [];
-
-  const createCashflowEntry = useMutation(
-    trpc.cashflowEntries.create.mutationOptions({
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: cashflowQueryOptions.queryKey });
-        queryClient.invalidateQueries({ queryKey: listPageQueryOptions.queryKey });
-        queryClient.invalidateQueries({ queryKey: unverifiedQueryOptions.queryKey });
-        setFormState({
-          description: "",
-          category: "",
-          accountEntryId: "",
-        });
-        setIsDialogOpen(false);
-      },
-    }),
-  );
-
-  const bindReceiptMutation = useMutation(
-    trpc.receiptSubmission.bind.mutationOptions({
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: cashflowQueryOptions.queryKey });
-        queryClient.invalidateQueries({ queryKey: listPageQueryOptions.queryKey });
-        queryClient.invalidateQueries({ queryKey: unboundReceiptsQueryOptions.queryKey });
-        queryClient.invalidateQueries({ queryKey: unboundListQueryOptions.queryKey });
-        resetAttachDialog();
-      },
-    }),
-  );
-
-  const submitAndBindMutation = useMutation(
-    trpc.receiptSubmission.submitAndBind.mutationOptions({
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: cashflowQueryOptions.queryKey });
-        queryClient.invalidateQueries({ queryKey: listPageQueryOptions.queryKey });
-        queryClient.invalidateQueries({ queryKey: unboundReceiptsQueryOptions.queryKey });
-        queryClient.invalidateQueries({ queryKey: unboundListQueryOptions.queryKey });
-        resetAttachDialog();
-      },
-    }),
-  );
-
-  const unbindMutation = useMutation(
-    trpc.receiptSubmission.unbind.mutationOptions({
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: cashflowQueryOptions.queryKey });
-        queryClient.invalidateQueries({ queryKey: listPageQueryOptions.queryKey });
-        queryClient.invalidateQueries({ queryKey: unboundReceiptsQueryOptions.queryKey });
-        queryClient.invalidateQueries({ queryKey: unboundListQueryOptions.queryKey });
-        queryClient.invalidateQueries({ queryKey: receiptsQueryOptions.queryKey });
-      },
-    }),
-  );
-
-  const resetAttachDialog = () => {
-    setAttachingToEntryId(null);
-    setAttachingToEntry(null);
-    setAttachMode("select");
-    setSelectedReceiptId("");
-    setUploadForm({
-      submitterName: session.data?.user?.name ?? "",
-      purpose: "",
-      notes: "",
-    });
-    setImagePreview(null);
-    setImageData("");
-    setImageType("");
-  };
-
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith("image/")) {
-      return;
-    }
-
-    if (file.size > 1024 * 1024) {
-      toast.error("Receipt image must be less than 1 MB");
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const base64 = reader.result as string;
-      setImagePreview(base64);
-      setImageData(base64.split(",")[1] || "");
-      setImageType(file.type);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const unverifiedEntries = unverifiedQuery.data ?? [];
-  const selectedAccountEntry = unverifiedEntries.find(
-    (e) => e.id === formState.accountEntryId
-  );
-
-  const cashflowEntries = cashflowQuery.data?.items ?? [];
-  const activeEntries = cashflowEntries.filter((entry) => entry.isActive);
-
-  useEffect(() => {
-    setPage(1);
-  }, [debouncedSearch, statusFilter, dateFilterMode, dateSingle, dateFrom, dateTo, dateSort]);
-
-  // Mandatory 0.25s loading overlay when order, search, or filter changes
-  const [isTableLoading, setIsTableLoading] = useState(false);
-  const tableLoadTriggerRef = useRef(false);
-  useEffect(() => {
-    if (!tableLoadTriggerRef.current) {
-      tableLoadTriggerRef.current = true;
-      return;
-    }
-    setIsTableLoading(true);
-    const t = setTimeout(() => setIsTableLoading(false), 250);
-    return () => clearTimeout(t);
-  }, [debouncedSearch, statusFilter, dateSort, dateFilterMode, dateSingle, dateFrom, dateTo, page]);
-
-  // Store full entry when opening Attach/View dialogs so we have it after page change
-  type TableEntry = (typeof tableItems)[number];
-  const [attachingToEntry, setAttachingToEntry] = useState<TableEntry | null>(null);
-  const [viewingEntry, setViewingEntry] = useState<TableEntry | null>(null);
-  const [detailEntry, setDetailEntry] = useState<TableEntry | null>(null);
-  useEffect(() => {
-    if (!attachingToEntryId) setAttachingToEntry(null);
-  }, [attachingToEntryId]);
-  useEffect(() => {
-    if (!viewingReceiptsEntryId) setViewingEntry(null);
-  }, [viewingReceiptsEntryId]);
-
-  const totalInflow = activeEntries
-    .filter((entry) => entry.amount > 0)
-    .reduce((sum, entry) => sum + entry.amount, 0);
-  const totalOutflow = activeEntries
-    .filter((entry) => entry.amount < 0)
-    .reduce((sum, entry) => sum + Math.abs(entry.amount), 0);
-  const netCashflow = totalInflow - totalOutflow;
-  const budgetedExpenditures = budgetOverview?.totalBudget ?? 0;
-  const actualExpenditures = budgetOverview?.totalActual ?? 0;
-  const remainingBudget = Math.max(0, budgetedExpenditures - actualExpenditures);
-  const reservedForPlanned = budgetOverview?.reservedForPlanned ?? 0;
-  const projectedCashflow = netCashflow - reservedForPlanned;
-  
-  const unverifiedNet = unverifiedEntries.reduce((sum, e) => sum + e.amount, 0);
-  const netMovement = netCashflow + unverifiedNet;
-  const deficit = netMovement - netCashflow;
-  const unverifiedAmount = unverifiedEntries.reduce(
-    (sum, e) => sum + Math.abs(e.amount),
-    0,
-  );
-  const totalVerified = activeEntries.reduce(
-    (sum, e) => sum + Math.abs(e.amount),
-    0,
-  );
-  const totalActivity = unverifiedAmount + totalVerified;
-  const deficitRatio = totalActivity === 0 ? 0 : Math.min(Math.abs(deficit) / Math.max(totalActivity, 1), 1);
-
-  // Resync cashflow entry amounts from linked account entries (e.g. after editing amount on Accounts page)
-  const resyncAmountsMutation = useMutation(
-    trpc.cashflowEntries.resyncAmountsFromAccounts.mutationOptions({
-      onSuccess: (result) => {
-        queryClient.invalidateQueries({ queryKey: cashflowQueryOptions.queryKey });
-        queryClient.invalidateQueries({ queryKey: listPageQueryOptions.queryKey });
-        queryClient.invalidateQueries({ queryKey: unverifiedQueryOptions.queryKey });
-        queryClient.invalidateQueries({ queryKey: budgetOverviewQueryOptions.queryKey });
-        if (result.updated > 0) {
-          toast.success(`${result.updated} cashflow amount(s) updated from account entries`);
-        } else {
-          toast.success("Cashflow already in sync");
-        }
-      },
-      onError: () => {
-        toast.error("Failed to resync cashflow amounts");
-      },
-    }),
-  );
-  const resyncing = resyncAmountsMutation.isPending;
-  const handleResyncCashflow = () => resyncAmountsMutation.mutate();
-
-  const formatCurrency = (value: number) =>
-    new Intl.NumberFormat("en-PH", {
-      style: "currency",
-      currency: "PHP",
-      maximumFractionDigits: 2,
-    }).format(value);
-
-  const currentReceipt = receipts[viewingReceiptIndex];
-
-  // Edit description/category state
-  const [editingCashflowEntry, setEditingCashflowEntry] = useState<TableEntry | null>(null);
-  const [editForm, setEditForm] = useState({ description: "", category: "" });
-
-  const updateCashflowMutation = useMutation(
-    trpc.cashflowEntries.update.mutationOptions({
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: cashflowQueryOptions.queryKey });
-        queryClient.invalidateQueries({ queryKey: listPageQueryOptions.queryKey });
-        queryClient.invalidateQueries({
-          predicate: (query) =>
-            Array.isArray(query.queryKey[0]) &&
-            query.queryKey[0][0] === "accountEntries",
-        });
-        setEditingCashflowEntry(null);
-        toast.success("Transaction updated");
-      },
-      onError: (err) => {
-        toast.error(err.message ?? "Failed to update transaction");
-      },
-    }),
-  );
-
-  // Line item state
-  const [editingLineItemsEntry, setEditingLineItemsEntry] = useState<TableEntry | null>(null);
-  const [lineItemsDraft, setLineItemsDraft] = useState<
-    { id?: string; description: string; category: string; amount: string; notes?: string }[]
-  >([]);
-  const [lineItemsLoading, setLineItemsLoading] = useState(false);
-
-  const loadLineItems = async (entryId: string) => {
-    setLineItemsLoading(true);
-    try {
-      const items = await queryClient.fetchQuery(
-        trpc.cashflowEntries.getLineItems.queryOptions({ id: entryId }),
-      );
-      setLineItemsDraft(
-        items.length > 0
-          ? items.map((item) => ({
-              id: item.id,
-              description: item.description,
-              category: item.category,
-              amount: item.amount.toString(),
-              notes: item.notes ?? "",
-            }))
-          : [
-              {
-                description: "",
-                category: "",
-                amount: "",
-              },
-            ],
-      );
-    } finally {
-      setLineItemsLoading(false);
-    }
-  };
-
-  const setLineItemsMutation = useMutation(
-    trpc.cashflowEntries.setLineItems.mutationOptions({
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: cashflowQueryOptions.queryKey });
-        queryClient.invalidateQueries({ queryKey: listPageQueryOptions.queryKey });
-        setEditingLineItemsEntry(null);
-      },
-      onError: (error) => {
-        toast.error(error.message || "Failed to save line items");
-      },
-    }),
-  );
-
-  const lineItemsTotal = lineItemsDraft.reduce((sum, item) => {
-    const n = Number(item.amount);
-    return sum + (Number.isFinite(n) ? n : 0);
-  }, 0);
-
-  return (
-    <div className="mx-auto flex w-full max-w-6xl min-w-0 flex-col gap-4 px-3 py-4 sm:gap-6 sm:px-4 sm:py-6">
-      {/* Header Section */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-widest text-primary">Dashboard</p>
-          <h1 className="text-3xl font-bold tracking-tight">Finance Overview</h1>
-          <p className="text-muted-foreground">
-            {canEditDashboard
-              ? `Welcome back, ${session.data?.user?.name ?? "User"}`
-              : "View-only. Only VP Finance and Auditor can verify transactions and attach receipts."}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant="outline"
-            className="relative"
-            onClick={() => navigate({ to: "/receipts" })}
-          >
-            View Submitted Receipts
-            {unboundReceiptsCount > 0 && (
-              <span className="absolute -top-2 -right-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-xs font-semibold text-white">
-                {unboundReceiptsCount}
-              </span>
-            )}
-          </Button>
-          {canEditDashboard && (
-          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-            <Button variant="default" onClick={() => setIsDialogOpen(true)}>
-              Verify Transaction
-            </Button>
-            <DialogPopup>
-              <DialogHeader>
-                <DialogTitle>Verify Account Transaction</DialogTitle>
-                <DialogDescription>
-                  Select a transaction and give it an official designation.
-                </DialogDescription>
-              </DialogHeader>
-              <form
-                noValidate
-                className="mt-4 space-y-4"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  if (!selectedAccountEntry) return;
-                  if (selectedAccountEntry && (!formState.description.trim() || !formState.category.trim())) {
-                    toast.error("Please fill out all required fields.");
-                    return;
-                  }
-                  createCashflowEntry.mutate({
-                    date: new Date(selectedAccountEntry.date).toISOString(),
-                    description: formState.description,
-                    category: formState.category,
-                    amount: String(selectedAccountEntry.amount),
-                    accountEntryId: formState.accountEntryId,
-                  });
-                }}
-              >
-                <div className="space-y-2">
-                  <Label>Select Transaction</Label>
-                  <div className="border border-border/60 rounded-xl overflow-hidden bg-background/40 backdrop-blur-sm">
-                    <div className="max-h-[240px] overflow-y-auto custom-scrollbar">
-                      <table className="w-full text-left text-xs border-collapse">
-                        <thead className="bg-muted/50 sticky top-0 border-b border-border/50 z-10">
-                          <tr>
-                            <th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase tracking-wider">Date</th>
-                            <th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase tracking-wider">Account</th>
-                            <th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase tracking-wider">Description</th>
-                            <th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase tracking-wider text-right">Amount</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border/30">
-                          {unverifiedEntries.length === 0 ? (
-                            <tr>
-                              <td colSpan={4} className="px-3 py-8 text-center text-muted-foreground">
-                                No unverified transactions. Add transactions in the Accounts page first.
-                              </td>
-                            </tr>
-                          ) : (
-                            unverifiedEntries.map((e) => (
-                              <tr 
-                                key={e.id} 
-                                onClick={() => setFormState({ ...formState, accountEntryId: e.id })}
-                                className={cn(
-                                  "cursor-pointer transition-colors hover:bg-primary/5",
-                                  formState.accountEntryId === e.id ? "bg-primary/10 hover:bg-primary/15" : ""
-                                )}
-                              >
-                                <td className="px-3 py-3 tabular-nums text-muted-foreground whitespace-nowrap">
-                                  {new Date(e.date).toLocaleDateString()}
-                                </td>
-                                <td className="px-3 py-3 font-medium">{e.account}</td>
-                                <td className="px-3 py-3 min-w-[120px]">{e.description}</td>
-                                <td className={cn(
-                                  "px-3 py-3 text-right font-semibold tabular-nums whitespace-nowrap",
-                                  e.amount >= 0 ? "text-emerald-500" : "text-rose-500"
-                                )}>
-                                  {formatCurrency(e.amount)}
-                                </td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-
-                {selectedAccountEntry && (
-                  <>
-                    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Selected Transaction</p>
-                      <div className="mt-3 grid gap-2 text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Date</span>
-                          <span className="font-medium">{new Date(selectedAccountEntry.date).toLocaleDateString()}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Account</span>
-                          <span className="font-medium">{selectedAccountEntry.account}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Description</span>
-                          <span className="font-medium">{selectedAccountEntry.description}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Amount</span>
-                          <span className={`font-semibold ${selectedAccountEntry.amount >= 0 ? "text-emerald-500" : "text-rose-500"}`}>
-                            {formatCurrency(selectedAccountEntry.amount)}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="description">Official Description</Label>
-                      <Input
-                        id="description"
-                        placeholder="Official designation for this transaction"
-                        value={formState.description}
-                        onChange={(e) => setFormState({ ...formState, description: e.target.value })}
-                        required
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="category">Category</Label>
-                      <Input
-                        id="category"
-                        placeholder="e.g. Revenue, Expense, Transfer"
-                        value={formState.category}
-                        onChange={(e) => setFormState({ ...formState, category: e.target.value })}
-                        required
-                      />
-                    </div>
-                  </>
-                )}
-
-                <DialogFooter className="mt-6">
-                  <DialogClose asChild>
-                    <Button type="button" variant="outline">
-                      Cancel
-                    </Button>
-                  </DialogClose>
-                  <Button 
-                    type="submit" 
-                    disabled={createCashflowEntry.isPending || !selectedAccountEntry}
-                  >
-                    {createCashflowEntry.isPending ? "Verifying..." : "Verify Transaction"}
-                  </Button>
-                </DialogFooter>
-              </form>
-            </DialogPopup>
-          </Dialog>
-          )}
-          <Button variant="outline" onClick={() => setPdfDialogOpen(true)} className="gap-2">
-            <FileDown className="size-4" />
-            {isPdfOnCooldown ? `PDF Report (${pdfCooldownLabel})` : "PDF Report"}
-          </Button>
-        </div>
-      </div>
-
-      {/* Stats Grid */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Total Inflow</CardDescription>
-            <CardTitle className="text-2xl text-emerald-500">{formatCurrency(totalInflow)}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-muted-foreground">Cleared + pending</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Total Outflow</CardDescription>
-            <CardTitle className="text-2xl text-rose-500">{formatCurrency(totalOutflow)}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-muted-foreground">Operational + capital</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Net Cashflow</CardDescription>
-            <CardTitle className={`text-2xl ${netCashflow >= 0 ? "text-foreground" : "text-rose-500"}`}>
-              {formatCurrency(netCashflow)}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-muted-foreground">Current verified net balance (money left)</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Projected Cashflow</CardDescription>
-            <CardTitle
-              className={`text-2xl ${
-                projectedCashflow >= 0 ? "text-emerald-500" : "text-rose-500"
-              }`}
-            >
-              {formatCurrency(projectedCashflow)}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xs text-muted-foreground">
-              Net minus reserved for planned events
-              {budgetOverview && reservedForPlanned > 0
-                ? ` (${formatCurrency(reservedForPlanned)} reserved)`
-                : ""}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center gap-1.5">
-              <CardDescription>Deficit</CardDescription>
-              <TooltipProvider
-                side="top"
-                content={
-                  <p className="text-muted-foreground">
-                    Net movement (accounts) minus net cashflow (verified). Positive deficit means more income in accounts than verified—likely income not yet verified. Negative deficit means more expenses in accounts than verified—likely expenses not yet verified. Zero = in sync.
-                  </p>
-                }
-              >
-                <Info className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-              </TooltipProvider>
-            </div>
-            <CardTitle className={`text-2xl ${deficit === 0 ? "text-foreground" : deficit > 0 ? "text-emerald-500" : "text-rose-500"}`}>
-              {formatCurrency(deficit)}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <p className="text-xs text-muted-foreground">
-              {deficit === 0
-                ? "In sync (net movement = net cashflow)"
-                : deficit > 0
-                  ? "Likely income not yet verified"
-                  : "Likely expenses not yet verified"}
-            </p>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className={`h-2 rounded-full transition-all ${deficit === 0 ? "bg-emerald-500" : deficit > 0 ? "bg-emerald-500/80" : "bg-rose-500/80"}`}
-                style={{ width: `${(1 - deficitRatio) * 100}%` }}
-              />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Budget Planning Quick Start */}
-      {budgetOverview && (
-        <Card className="border-primary/20 bg-gradient-to-r from-primary/5 to-transparent">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  Budget Planning
-                  {budgetOverview.plannedCount > 0 && (
-                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                      {budgetOverview.plannedCount} active
-                    </span>
-                  )}
-                </CardTitle>
-                <CardDescription>Track planned expenses for upcoming events</CardDescription>
-              </div>
-              <Button variant="outline" onClick={() => navigate({ to: "/budgets" })}>
-                View All Budgets
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="rounded-lg border border-border/60 p-4">
-                <p className="text-xs font-medium text-muted-foreground">Total Budget</p>
-                <p className="text-xl font-semibold">{formatCurrency(budgetOverview.totalBudget)}</p>
-                <p className="text-xs text-muted-foreground">{budgetOverview.totalProjects} project{budgetOverview.totalProjects === 1 ? "" : "s"}</p>
-              </div>
-              <div className="rounded-lg border border-border/60 p-4">
-                <p className="text-xs font-medium text-muted-foreground">Total Spent</p>
-                <p className={`text-xl font-semibold ${budgetOverview.totalActual > budgetOverview.totalBudget ? "text-rose-500" : "text-emerald-500"}`}>
-                  {formatCurrency(budgetOverview.totalActual)}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {budgetOverview.totalBudget > 0 
-                    ? `${((budgetOverview.totalActual / budgetOverview.totalBudget) * 100).toFixed(1)}% of budget`
-                    : "No budget set"}
-                </p>
-              </div>
-              <div className="rounded-lg border border-border/60 p-4">
-                <p className="text-xs font-medium text-muted-foreground">Remaining</p>
-                <p className={`text-xl font-semibold ${budgetOverview.totalBudget - budgetOverview.totalActual < 0 ? "text-rose-500" : ""}`}>
-                  {formatCurrency(budgetOverview.totalBudget - budgetOverview.totalActual)}
-                </p>
-                <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                  <div
-                    className={`h-1.5 rounded-full transition-all ${budgetOverview.totalActual > budgetOverview.totalBudget ? "bg-rose-500" : "bg-emerald-500"}`}
-                    style={{ width: `${Math.min((budgetOverview.totalActual / budgetOverview.totalBudget) * 100, 100) || 0}%` }}
-                  />
-                </div>
-              </div>
-            </div>
-            {budgetOverview.upcomingEvents.length > 0 && (
-              <div className="mt-4 border-t pt-4">
-                <p className="mb-2 text-xs font-medium text-muted-foreground">Upcoming Events</p>
-                <div className="space-y-2">
-                  {budgetOverview.upcomingEvents.map((event) => (
-                    <div key={event.id} className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">{event.name}</span>
-                        {event.category && (
-                          <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                            {event.category}
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-muted-foreground">
-                        {event.eventDate && new Date(event.eventDate).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Transactions Table */}
-      <Card>
-        <CardHeader>
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <CardTitle>Cashflow Activity</CardTitle>
-              <CardDescription>Your verified transactions. Click a row for details.</CardDescription>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <TooltipProvider
-                side="bottom"
-                content={
-                  <p className="text-muted-foreground">
-                    Update each cashflow entry’s amount to match its linked account entry (e.g. after you changed an amount on the Accounts page).
-                  </p>
-                }
-              >
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-2 border-dashed"
-                  onClick={handleResyncCashflow}
-                  disabled={resyncing}
-                >
-                  {resyncing ? (
-                    <Loader2 className="size-4 shrink-0 animate-spin" />
-                  ) : (
-                    <RefreshCw className="size-4 shrink-0" />
-                  )}
-                  {resyncing ? "Resyncing…" : "Resync"}
-                </Button>
-              </TooltipProvider>
-              <Input
-                placeholder="Search by amount or description"
-                className="w-full sm:w-72"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={(props) => (
-                    <Button variant="outline" size="sm" className="gap-2" {...props}>
-                      <Filter className="size-4" />
-                      Status:{" "}
-                      {statusFilter === "all"
-                        ? "All"
-                        : statusFilter === "no_receipt"
-                          ? "No receipt"
-                          : statusFilter === "verified"
-                            ? "Verified"
-                            : "Manual entry"}
-                    </Button>
-                  )}
-                />
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => setStatusFilter("all")}>
-                    All statuses
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setStatusFilter("no_receipt")}>
-                    No receipt
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setStatusFilter("verified")}>
-                    Verified
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setStatusFilter("manual")}>
-                    Manual entry
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <DropdownMenu>
-                <DropdownMenuTrigger
-                  render={(props) => (
-                    <Button variant="outline" size="sm" className="gap-2" {...props}>
-                      <Calendar className="size-4" />
-                      Date:{" "}
-                      {dateFilterMode === "all"
-                        ? "All"
-                        : dateFilterMode === "single" && dateSingle
-                          ? dateSingle
-                          : dateFilterMode === "range" && dateFrom && dateTo
-                            ? `${dateFrom} → ${dateTo}`
-                            : "All"}
-                    </Button>
-                  )}
-                />
-                <DropdownMenuContent align="end" className="min-w-64 p-0">
-                  <DropdownMenuItem onClick={() => setDateFilterMode("all")}>
-                    All dates
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuGroup>
-                    <DropdownMenuLabel className="px-2 py-1.5 text-xs">
-                      Specific date
-                    </DropdownMenuLabel>
-                    <div
-                      className="px-2 pb-2"
-                      onClick={(e) => e.stopPropagation()}
-                      onKeyDown={(e) => e.stopPropagation()}
-                    >
-                      <Input
-                        type="date"
-                        value={dateSingle}
-                        onChange={(e) => {
-                          setDateSingle(e.target.value);
-                          setDateFilterMode("single");
-                        }}
-                        className="h-9 text-xs"
-                      />
-                    </div>
-                  </DropdownMenuGroup>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuGroup>
-                    <DropdownMenuLabel className="px-2 py-1.5 text-xs">
-                      Date range
-                    </DropdownMenuLabel>
-                    <div
-                      className="flex flex-col gap-2 px-2 pb-3"
-                      onClick={(e) => e.stopPropagation()}
-                      onKeyDown={(e) => e.stopPropagation()}
-                    >
-                      <div className="flex items-center gap-2">
-                        <Label className="shrink-0 text-xs text-muted-foreground">From</Label>
-                        <Input
-                          type="date"
-                          value={dateFrom}
-                          onChange={(e) => {
-                            setDateFrom(e.target.value);
-                            setDateFilterMode("range");
-                          }}
-                          className="h-9 text-xs"
-                        />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Label className="shrink-0 text-xs text-muted-foreground">To</Label>
-                        <Input
-                          type="date"
-                          value={dateTo}
-                          onChange={(e) => {
-                            setDateTo(e.target.value);
-                            setDateFilterMode("range");
-                          }}
-                          className="h-9 text-xs"
-                        />
-                      </div>
-                    </div>
-                  </DropdownMenuGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="p-0">
-          {/* Pagination above table */}
-          {(tableItems.length > 0 || page > 1) && (
-            <div className="flex items-center justify-between gap-4 border-b border-border/50 bg-muted/20 px-5 py-3">
-              <p className="text-xs text-muted-foreground">
-                Showing {(page - 1) * PAGE_SIZE + 1}–{(page - 1) * PAGE_SIZE + tableItems.length}
-              </p>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={page <= 1}
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                >
-                  Previous
-                </Button>
-                <span className="text-sm text-muted-foreground">
-                  Page {page}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!hasMore}
-                  onClick={() => setPage((p) => p + 1)}
-                >
-                  Next
-                </Button>
-              </div>
-            </div>
-          )}
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-y border-border/50 bg-muted/30 text-xs text-muted-foreground">
-                <tr>
-                  <th className="px-5 py-3 font-medium">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="-ml-2 h-8 gap-1.5 font-medium text-muted-foreground hover:text-foreground"
-                      onClick={() =>
-                        setDateSort((s) => (s === "desc" ? "asc" : "desc"))
-                      }
-                    >
-                      Date
-                      {dateSort === "desc" ? (
-                        <ArrowDown className="size-3.5 shrink-0" />
-                      ) : (
-                        <ArrowUp className="size-3.5 shrink-0" />
-                      )}
-                    </Button>
-                  </th>
-                  <th className="px-5 py-3 font-medium">Description</th>
-                  <th className="px-5 py-3 font-medium">Category</th>
-                  <th className="px-5 py-3 font-medium">Account</th>
-                  <th className="px-5 py-3 font-medium text-right">Amount</th>
-                  <th className="px-5 py-3 font-medium">Status</th>
-                  <th className="px-5 py-3 font-medium">Receipts</th>
-                </tr>
-              </thead>
-              <tbody>
-              {tableItems.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-5 py-8 text-center text-muted-foreground">
-                    {debouncedSearch || statusFilter !== "all" || dateFilterMode !== "all"
-                      ? "No transactions match your search or filter."
-                      : "No transactions yet. Verify transactions from the Accounts page."}
-                  </td>
-                </tr>
-              ) : (
-                tableItems.map((entry) => {
-                  const hasAccountEntry = !!entry.accountEntryId;
-                  const noReceipt = entry.receiptsCount === 0;
-                  return (
-                    <tr
-                      key={entry.id}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => setDetailEntry(entry)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          setDetailEntry(entry);
-                        }
-                      }}
-                      className={cn(
-                        "border-b border-border/30 last:border-0 transition-colors hover:bg-muted/20 cursor-pointer",
-                        hasAccountEntry && "bg-emerald-500/5",
-                        noReceipt && "bg-red-500/5"
-                      )}
-                    >
-                      <td className="px-5 py-4 text-muted-foreground">
-                        {new Date(entry.date).toLocaleDateString()}
-                      </td>
-                      <td className="px-5 py-4">
-                        <div className="font-medium">{entry.description}</div>
-                        <div className="text-xs text-muted-foreground">#{entry.id.slice(0, 8)}</div>
-                        {hasAccountEntry && entry.accountEntry && (
-                          <div className="mt-1 text-xs text-emerald-600 dark:text-emerald-400">
-                            From: {entry.accountEntry.account} — {entry.accountEntry.description}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-5 py-4">
-                        <span className="rounded-lg bg-muted px-2 py-1 text-xs font-medium">
-                          {entry.category}
-                        </span>
-                      </td>
-                      <td className="px-5 py-4 text-muted-foreground">
-                        {entry.accountEntry?.account ?? "—"}
-                      </td>
-                      <td
-                        className={`px-5 py-4 text-right font-semibold ${
-                          entry.amount >= 0 ? "text-emerald-500" : "text-rose-500"
-                        }`}
-                      >
-                        {formatCurrency(entry.amount)}
-                      </td>
-                      <td className="px-5 py-4">
-                        {entry.receiptsCount === 0 ? (
-                          <span className="inline-flex items-center rounded-full bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-600 dark:text-red-400">
-                            No receipt
-                          </span>
-                        ) : hasAccountEntry ? (
-                          <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                            Verified
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
-                            Manual entry
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-5 py-4">
-                          <div className="flex flex-col gap-1">
-                          <div className="flex items-center gap-2">
-                            <span className="text-muted-foreground">
-                              {entry.receiptsCount} file{entry.receiptsCount === 1 ? "" : "s"}
-                            </span>
-                            {entry.receiptsCount > 0 && (
-                              <Button
-                                size="xs"
-                                variant="ghost"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setViewingReceiptsEntryId(entry.id);
-                                  setViewingEntry(entry);
-                                  setViewingReceiptIndex(0);
-                                }}
-                              >
-                                View
-                              </Button>
-                            )}
-                            {canEditDashboard && (
-                              <>
-                                <Button
-                                  size="xs"
-                                  variant="ghost"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setAttachingToEntryId(entry.id);
-                                    setAttachingToEntry(entry);
-                                  }}
-                                >
-                                  Attach
-                                </Button>
-                                <Button
-                                  size="xs"
-                                  variant="ghost"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setEditingCashflowEntry(entry);
-                                    setEditForm({
-                                      description: entry.description,
-                                      category: entry.category,
-                                    });
-                                  }}
-                                >
-                                  Edit
-                                </Button>
-                              </>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {Array.isArray(entry.lineItems) && entry.lineItems.length > 0 ? (
-                              <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                                {entry.lineItems.length} item{entry.lineItems.length === 1 ? "" : "s"}
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                                No breakdown
-                              </span>
-                            )}
-                            {canEditDashboard && (
-                              <Button
-                                size="xs"
-                                variant="outline"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setEditingLineItemsEntry(entry);
-                                  void loadLineItems(entry.id);
-                                }}
-                              >
-                                Breakdown
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Entry detail popup — click a row to open */}
-      <Dialog open={!!detailEntry} onOpenChange={(open) => !open && setDetailEntry(null)}>
-        <DialogPopup className="max-w-xl">
-          {detailEntry && (
-            <>
-              <DialogHeader className="text-left">
-                <DialogTitle className="pr-8 text-lg leading-tight">
-                  {detailEntry.description}
-                </DialogTitle>
-                <DialogDescription className="text-left">
-                  <span
-                    className={cn(
-                      "font-semibold tabular-nums",
-                      detailEntry.amount >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
-                    )}
-                  >
-                    {formatCurrency(detailEntry.amount)}
-                  </span>
-                  <span className="text-muted-foreground ml-2">
-                    · {new Date(detailEntry.date).toLocaleDateString("en-PH", { weekday: "short", year: "numeric", month: "short", day: "numeric" })}
-                  </span>
-                </DialogDescription>
-              </DialogHeader>
-
-              <div className="mt-5 space-y-4">
-                {/* Overview */}
-                <div className="rounded-xl border border-border/60 bg-muted/20 p-4">
-                  <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Overview
-                  </p>
-                  <dl className="grid gap-2 text-sm">
-                    <div className="flex justify-between gap-4">
-                      <dt className="text-muted-foreground">Category</dt>
-                      <dd>
-                        <span className="rounded-md bg-muted px-2 py-0.5 font-medium">
-                          {detailEntry.category}
-                        </span>
-                      </dd>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <dt className="text-muted-foreground">Account</dt>
-                      <dd className="font-medium">
-                        {detailEntry.accountEntry?.account ?? "—"}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <dt className="text-muted-foreground">Status</dt>
-                      <dd>
-                        {detailEntry.receiptsCount === 0 ? (
-                          <span className="inline-flex items-center rounded-full bg-red-500/10 px-2.5 py-1 text-xs font-medium text-red-600 dark:text-red-400">
-                            No receipt
-                          </span>
-                        ) : detailEntry.accountEntryId ? (
-                          <span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                            Verified
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
-                            Manual entry
-                          </span>
-                        )}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between gap-4">
-                      <dt className="text-muted-foreground">Entry ID</dt>
-                      <dd className="font-mono text-xs text-muted-foreground">
-                        #{detailEntry.id.slice(0, 8)}
-                      </dd>
-                    </div>
-                  </dl>
-                </div>
-
-                {/* Source (linked account entry) */}
-                {detailEntry.accountEntry && (
-                  <div className="rounded-xl border border-border/60 bg-emerald-500/5 p-4">
-                    <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">
-                      Linked account transaction
-                    </p>
-                    <p className="text-sm">
-                      <span className="font-medium">{detailEntry.accountEntry.account}</span>
-                      <span className="text-muted-foreground"> — </span>
-                      {detailEntry.accountEntry.description}
-                    </p>
-                  </div>
-                )}
-
-                {/* Line items */}
-                {Array.isArray(detailEntry.lineItems) && detailEntry.lineItems.length > 0 && (
-                  <div className="rounded-xl border border-border/60 bg-muted/20 p-4">
-                    <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      Breakdown ({detailEntry.lineItems.length} item{detailEntry.lineItems.length === 1 ? "" : "s"})
-                    </p>
-                    <div className="space-y-2">
-                      {detailEntry.lineItems.map((item) => (
-                        <div
-                          key={item.id}
-                          className="flex items-center justify-between gap-4 rounded-lg border border-border/40 bg-background/60 px-3 py-2 text-sm"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <p className="font-medium truncate">{item.description}</p>
-                            <p className="text-xs text-muted-foreground">{item.category}</p>
-                          </div>
-                          <span className={cn(
-                            "shrink-0 tabular-nums font-medium",
-                            item.amount >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
-                          )}>
-                            {formatCurrency(item.amount)}
-                          </span>
-                        </div>
-                      ))}
-                      <div className="flex justify-between border-t border-border/60 pt-2 text-sm font-semibold">
-                        <span>Total</span>
-                        <span className={cn(
-                          "tabular-nums",
-                          detailEntry.amount >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
-                        )}>
-                          {formatCurrency(detailEntry.amount)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Receipts */}
-                <div className="rounded-xl border border-border/60 bg-muted/20 p-4">
-                  <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Receipts
-                  </p>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm text-muted-foreground">
-                      {detailEntry.receiptsCount} file{detailEntry.receiptsCount === 1 ? "" : "s"} attached
-                    </span>
-                    {detailEntry.receiptsCount > 0 && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setDetailEntry(null);
-                          setViewingReceiptsEntryId(detailEntry.id);
-                          setViewingEntry(detailEntry);
-                          setViewingReceiptIndex(0);
-                        }}
-                      >
-                        View receipts
-                      </Button>
-                    )}
-                    {canEditDashboard && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setDetailEntry(null);
-                          setAttachingToEntryId(detailEntry.id);
-                          setAttachingToEntry(detailEntry);
-                        }}
-                      >
-                        {detailEntry.receiptsCount > 0 ? "Attach more" : "Attach receipt"}
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <DialogFooter className="mt-6 flex-wrap gap-2">
-                <DialogClose asChild>
-                  <Button variant="outline">Close</Button>
-                </DialogClose>
-                {canEditDashboard && (
-                  <>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setDetailEntry(null);
-                        setEditingCashflowEntry(detailEntry);
-                        setEditForm({
-                          description: detailEntry.description,
-                          category: detailEntry.category,
-                        });
-                      }}
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setDetailEntry(null);
-                        setEditingLineItemsEntry(detailEntry);
-                        void loadLineItems(detailEntry.id);
-                      }}
-                    >
-                      Breakdown
-                    </Button>
-                  </>
-                )}
-              </DialogFooter>
-            </>
-          )}
-        </DialogPopup>
-      </Dialog>
-
-      {/* Full-page loading overlay when order/search/filter changes */}
-      {isTableLoading && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-background/50 backdrop-blur-sm animate-in fade-in duration-200 ease-out"
-          aria-hidden="true"
-        >
-          <Loader2 className="size-12 text-primary animate-[spin_1.2s_linear_infinite]" />
-        </div>
-      )}
-
-      {/* View Receipts Dialog */}
-      <Dialog 
-        open={!!viewingReceiptsEntryId} 
-        onOpenChange={(open) => {
-          if (!open) {
-            setViewingReceiptsEntryId(null);
-            setViewingEntry(null);
-            setViewingReceiptIndex(0);
-          }
-        }}
-      >
-        <DialogPopup className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Attached Receipts</DialogTitle>
-            <DialogDescription>
-              {viewingEntry?.description} — {receipts.length} receipt{receipts.length === 1 ? "" : "s"}
-            </DialogDescription>
-          </DialogHeader>
-          
-          {receiptsQuery.isLoading ? (
-            <div className="py-8 text-center text-muted-foreground">Loading...</div>
-          ) : receipts.length === 0 ? (
-            <div className="py-8 text-center text-muted-foreground">No receipts attached.</div>
-          ) : (
-            <div className="mt-4 space-y-4">
-              {/* Receipt Navigation */}
-              {receipts.length > 1 && (
-                <div className="flex items-center justify-between">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setViewingReceiptIndex((i) => Math.max(0, i - 1))}
-                    disabled={viewingReceiptIndex === 0}
-                  >
-                    Previous
-                  </Button>
-                  <span className="text-sm text-muted-foreground">
-                    {viewingReceiptIndex + 1} of {receipts.length}
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setViewingReceiptIndex((i) => Math.min(receipts.length - 1, i + 1))}
-                    disabled={viewingReceiptIndex === receipts.length - 1}
-                  >
-                    Next
-                  </Button>
-                </div>
-              )}
-
-              {currentReceipt && (
-                <>
-                  {/* Receipt Details */}
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div>
-                      <p className="text-xs font-medium text-muted-foreground">Submitter</p>
-                      <p className="font-medium">{currentReceipt.submitterName}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-medium text-muted-foreground">Date Submitted</p>
-                      <p className="font-medium">
-                        {new Date(currentReceipt.createdAt).toLocaleString()}
-                      </p>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <p className="text-xs font-medium text-muted-foreground">Purpose</p>
-                      <p className="font-medium">{currentReceipt.purpose}</p>
-                    </div>
-                    {currentReceipt.notes && (
-                      <div className="sm:col-span-2">
-                        <p className="text-xs font-medium text-muted-foreground">Notes</p>
-                        <p>{currentReceipt.notes}</p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Receipt Image */}
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground mb-2">Receipt Image</p>
-                    <div className="rounded-lg border border-border/60 overflow-hidden bg-muted/20">
-                      <img
-                        src={`data:${currentReceipt.imageType};base64,${currentReceipt.imageData}`}
-                        alt="Receipt"
-                        className="max-h-80 w-full object-contain"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Unbind Button — only VP / Auditor */}
-                  {canEditDashboard && (
-                    <div className="pt-4 border-t">
-                      <Button
-                        variant="outline"
-                        className="text-amber-600 hover:text-amber-700"
-                        onClick={() => unbindMutation.mutate({ id: currentReceipt.id })}
-                        disabled={unbindMutation.isPending}
-                      >
-                        {unbindMutation.isPending ? "Unbinding..." : "Unbind This Receipt"}
-                      </Button>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-
-          <DialogFooter className="mt-6">
-            <DialogClose asChild>
-              <Button variant="outline">Close</Button>
-            </DialogClose>
-            {canEditDashboard && (
-              <Button onClick={() => {
-                setViewingReceiptsEntryId(null);
-                setAttachingToEntryId(viewingEntry?.id ?? null);
-              }}>
-                Attach More
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogPopup>
-      </Dialog>
-
-      {/* Edit description & category dialog */}
-      <Dialog
-        open={editingCashflowEntry != null}
-        onOpenChange={(open) => {
-          if (!open) setEditingCashflowEntry(null);
-        }}
-      >
-        <DialogPopup className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Edit transaction</DialogTitle>
-            <DialogDescription>
-              Update description and category. If this transaction was verified from an account entry, the account entry description will be updated to match.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="mt-4 space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="edit-desc">Description</Label>
-              <Input
-                id="edit-desc"
-                value={editForm.description}
-                onChange={(e) =>
-                  setEditForm((prev) => ({ ...prev, description: e.target.value }))
-                }
-                placeholder="Transaction description"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-cat">Category</Label>
-              <Input
-                id="edit-cat"
-                value={editForm.category}
-                onChange={(e) =>
-                  setEditForm((prev) => ({ ...prev, category: e.target.value }))
-                }
-                placeholder="Category"
-              />
-            </div>
-          </div>
-          <DialogFooter className="mt-6">
-            <DialogClose asChild>
-              <Button variant="outline">Cancel</Button>
-            </DialogClose>
-            <Button
-              disabled={
-                updateCashflowMutation.isPending ||
-                editForm.description.trim().length < 2 ||
-                editForm.category.trim().length < 2
-              }
-              onClick={() => {
-                if (!editingCashflowEntry) return;
-                updateCashflowMutation.mutate({
-                  id: editingCashflowEntry.id,
-                  description: editForm.description.trim(),
-                  category: editForm.category.trim(),
-                });
-              }}
-            >
-              {updateCashflowMutation.isPending ? "Saving..." : "Save changes"}
-            </Button>
-          </DialogFooter>
-        </DialogPopup>
-      </Dialog>
-
-      {/* PDF Report Dialog */}
-      <Dialog open={pdfDialogOpen} onOpenChange={setPdfDialogOpen}>
-        <DialogPopup className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Generate PDF Report</DialogTitle>
-            <DialogDescription>
-              Choose a date range. The report will include a table of cashflow entries and attached receipts in order (4–8 receipts per page).
-            </DialogDescription>
-          </DialogHeader>
-          <div className="mt-4 space-y-4">
-            <div className="space-y-2">
-              <Label className="text-muted-foreground">From</Label>
-              <Input
-                type="date"
-                value={pdfDateFrom}
-                onChange={(e) => setPdfDateFrom(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-muted-foreground">To</Label>
-              <Input
-                type="date"
-                value={pdfDateTo}
-                onChange={(e) => setPdfDateTo(e.target.value)}
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Leave both empty for all dates.
-            </p>
-            {!pdfDateFrom.trim() && !pdfDateTo.trim() && (
-              <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
-                <p className="font-medium">Heavy use notice</p>
-                <p className="mt-1">
-                  Reporting all dates uses significant server and browser resources. A{" "}
-                  <strong>5-minute cooldown</strong> will apply before you can generate another report.
-                </p>
-              </div>
-            )}
-            <p className="text-xs text-muted-foreground">
-              Reports with over 100 entries trigger a 2-minute cooldown. The cooldown timer is shown on the Generate PDF button.
-            </p>
-          </div>
-          <DialogFooter className="mt-6">
-            <DialogClose asChild>
-              <button type="button" className={buttonVariants({ variant: "outline" })}>
-                Cancel
-              </button>
-            </DialogClose>
-            <Button
-              disabled={pdfGenerating || isPdfOnCooldown}
-              onClick={async () => {
-                const noDateRange = !pdfDateFrom.trim() && !pdfDateTo.trim();
-                setPdfGenerating(true);
-                try {
-                  const data = await queryClient.fetchQuery(
-                    trpc.report.getReportData.queryOptions({
-                      dateFrom: pdfDateFrom.trim() || undefined,
-                      dateTo: pdfDateTo.trim() || undefined,
-                      dateSort: "desc",
-                    })
-                  );
-                  // Fetch receipt images in batches to stay under response size limits
-                  const receiptIds = data.receiptsInOrder.map((r) => r.receipt.id);
-                  const BATCH = 5; // batch size to balance speed vs 5MB response limit
-                  for (let i = 0; i < receiptIds.length; i += BATCH) {
-                    const batch = receiptIds.slice(i, i + BATCH);
-                    const images = await queryClient.fetchQuery(
-                      trpc.report.getReportReceiptImages.queryOptions({ receiptIds: batch })
-                    );
-                    const byId = new Map(images.map((img) => [img.id, img]));
-                    for (const row of data.receiptsInOrder) {
-                      const img = byId.get(row.receipt.id);
-                      if (img) row.receipt.imageData = img.imageData;
-                    }
-                  }
-                  downloadPdfReport(data, {
-                    dateFrom: pdfDateFrom.trim() || undefined,
-                    dateTo: pdfDateTo.trim() || undefined,
-                  });
-                  setPdfDialogOpen(false);
-                  const entryCount = data.entries.length;
-                  let cooldownMs = 0;
-                  if (noDateRange) cooldownMs = 5 * 60 * 1000;
-                  else if (entryCount > 100) cooldownMs = 2 * 60 * 1000;
-                  if (cooldownMs > 0) setPdfCooldownEnd(Date.now() + cooldownMs);
-                } finally {
-                  setPdfGenerating(false);
-                }
-              }}
-            >
-              {pdfGenerating ? (
-                <>
-                  <Loader2 className="size-4 animate-spin" />
-                  Generating…
-                </>
-              ) : isPdfOnCooldown ? (
-                `Generate PDF (${pdfCooldownLabel})`
-              ) : (
-                "Generate PDF"
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogPopup>
-      </Dialog>
-
-      {/* Attach Receipt Dialog */}
-      <Dialog open={!!attachingToEntryId} onOpenChange={(open) => !open && resetAttachDialog()}>
-        <DialogPopup className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Attach Receipt</DialogTitle>
-            <DialogDescription>
-              Attach a receipt to: {attachingToEntry?.description}
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="mt-4 space-y-4">
-            {/* Mode Tabs */}
-            <div className="flex rounded-lg border border-border/60 p-1">
-              <button
-                type="button"
-                className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                  attachMode === "select"
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-                onClick={() => setAttachMode("select")}
-              >
-                Select Existing
-              </button>
-              <button
-                type="button"
-                className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                  attachMode === "upload"
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-                onClick={() => setAttachMode("upload")}
-              >
-                Upload New
-              </button>
-            </div>
-
-            {attachMode === "select" ? (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Select Unbound Receipt</Label>
-                  <div className="border border-border/60 rounded-xl overflow-hidden bg-background/40 backdrop-blur-sm">
-                    <div className="max-h-[240px] overflow-y-auto custom-scrollbar">
-                      <table className="w-full text-left text-xs border-collapse">
-                        <thead className="bg-muted/50 sticky top-0 border-b border-border/50 z-10">
-                          <tr>
-                            <th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase tracking-wider">Date</th>
-                            <th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase tracking-wider">Submitter</th>
-                            <th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase tracking-wider">Purpose</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border/30">
-                          {unboundReceipts.length === 0 ? (
-                            <tr>
-                              <td colSpan={3} className="px-3 py-8 text-center text-muted-foreground">
-                                No unbound receipts available. Upload a new one instead.
-                              </td>
-                            </tr>
-                          ) : (
-                            unboundReceipts.map((r) => (
-                              <tr 
-                                key={r.id} 
-                                onClick={() => setSelectedReceiptId(r.id)}
-                                className={cn(
-                                  "cursor-pointer transition-colors hover:bg-primary/5",
-                                  selectedReceiptId === r.id ? "bg-primary/10 hover:bg-primary/15" : ""
-                                )}
-                              >
-                                <td className="px-3 py-3 tabular-nums text-muted-foreground whitespace-nowrap">
-                                  {new Date(r.createdAt).toLocaleDateString()}
-                                </td>
-                                <td className="px-3 py-3 font-medium whitespace-nowrap">{r.submitterName}</td>
-                                <td className="px-3 py-3 min-w-[120px]">{r.purpose}</td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-                <DialogFooter>
-                  <DialogClose asChild>
-                    <Button type="button" variant="outline">
-                      Cancel
-                    </Button>
-                  </DialogClose>
-                  <Button
-                    onClick={() => {
-                      if (attachingToEntryId && selectedReceiptId) {
-                        bindReceiptMutation.mutate({
-                          id: selectedReceiptId,
-                          cashflowEntryId: attachingToEntryId,
-                        });
-                      }
-                    }}
-                    disabled={!selectedReceiptId || bindReceiptMutation.isPending}
-                  >
-                    {bindReceiptMutation.isPending ? "Binding..." : "Bind Receipt"}
-                  </Button>
-                </DialogFooter>
-              </div>
-            ) : (
-              <form
-                noValidate
-                className="space-y-4"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (!attachingToEntryId || !imageData) return;
-                  if (!uploadForm.submitterName.trim() || !uploadForm.purpose.trim()) {
-                    toast.error("Please fill out all required fields.");
-                    return;
-                  }
-                  submitAndBindMutation.mutate({
-                    submitterName: uploadForm.submitterName,
-                    purpose: uploadForm.purpose,
-                    notes: uploadForm.notes || undefined,
-                    imageData,
-                    imageType,
-                    cashflowEntryId: attachingToEntryId,
-                  });
-                }}
-              >
-                <div className="space-y-2">
-                  <Label htmlFor="uploaderName">Your Name</Label>
-                  <Input
-                    id="uploaderName"
-                    value={uploadForm.submitterName}
-                    onChange={(e) => setUploadForm({ ...uploadForm, submitterName: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="purpose">Purpose</Label>
-                  <Input
-                    id="purpose"
-                    placeholder="What is this receipt for?"
-                    value={uploadForm.purpose}
-                    onChange={(e) => setUploadForm({ ...uploadForm, purpose: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="notes">Notes (optional)</Label>
-                  <Textarea
-                    id="notes"
-                    placeholder="Any additional notes..."
-                    value={uploadForm.notes}
-                    onChange={(e) => setUploadForm({ ...uploadForm, notes: e.target.value })}
-                    rows={2}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="receiptImage">Receipt Image</Label>
-                  <Input
-                    id="receiptImage"
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageChange}
-                    required
-                  />
-                  {imagePreview && (
-                    <div className="mt-2 rounded-lg border border-border/60 overflow-hidden">
-                      <img
-                        src={imagePreview}
-                        alt="Receipt preview"
-                        className="max-h-40 w-full object-contain"
-                      />
-                    </div>
-                  )}
-                </div>
-                <DialogFooter>
-                  <DialogClose asChild>
-                    <Button type="button" variant="outline">
-                      Cancel
-                    </Button>
-                  </DialogClose>
-                  <Button
-                    type="submit"
-                    disabled={!imageData || submitAndBindMutation.isPending}
-                  >
-                    {submitAndBindMutation.isPending ? "Uploading..." : "Upload & Bind"}
-                  </Button>
-                </DialogFooter>
-              </form>
-            )}
-          </div>
-        </DialogPopup>
-      </Dialog>
-
-      {/* Line Items Breakdown Dialog */}
-      <Dialog
-        open={!!editingLineItemsEntry}
-        onOpenChange={(open) => {
-          if (!open) {
-            setEditingLineItemsEntry(null);
-          }
-        }}
-      >
-        <DialogPopup className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Breakdown transaction</DialogTitle>
-            <DialogDescription>
-              {editingLineItemsEntry
-                ? `${editingLineItemsEntry.description} — ${formatCurrency(editingLineItemsEntry.amount)}`
-                : ""}
-            </DialogDescription>
-          </DialogHeader>
-          {editingLineItemsEntry ? (
-            <div className="mt-4 space-y-4">
-              <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs">
-                <div className="space-y-0.5">
-                  <p className="text-muted-foreground">Parent amount</p>
-                  <p className="font-semibold">
-                    {formatCurrency(editingLineItemsEntry.amount)}
-                  </p>
-                </div>
-                <div className="space-y-0.5 text-right">
-                  <p className="text-muted-foreground">Line items total</p>
-                  <p
-                    className={cn(
-                      "font-semibold",
-                      Math.abs(lineItemsTotal - editingLineItemsEntry.amount) < 0.01
-                        ? "text-emerald-500"
-                        : "text-rose-500",
-                    )}
-                  >
-                    {formatCurrency(lineItemsTotal)}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground">
-                    {Math.abs(lineItemsTotal - editingLineItemsEntry.amount) < 0.01
-                      ? "Balanced"
-                      : "Does not add up"}
-                  </p>
-                </div>
-              </div>
-
-              {lineItemsLoading ? (
-                <div className="py-8 text-center text-muted-foreground text-sm">
-                  Loading line items…
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <div className="grid grid-cols-[2fr_2fr_1fr_auto] gap-2 text-xs font-medium text-muted-foreground">
-                    <span>Description</span>
-                    <span>Category</span>
-                    <span className="text-right">Amount</span>
-                    <span />
-                  </div>
-                  <div className="space-y-2">
-                    {lineItemsDraft.map((item, index) => (
-                      <div
-                        key={item.id ?? index}
-                        className="grid grid-cols-[2fr_2fr_1fr_auto] gap-2 items-center"
-                      >
-                        <Input
-                          placeholder="Description"
-                          value={item.description}
-                          onChange={(e) => {
-                            const next = [...lineItemsDraft];
-                            next[index] = { ...next[index], description: e.target.value };
-                            setLineItemsDraft(next);
-                          }}
-                        />
-                        <Input
-                          placeholder="Category"
-                          value={item.category}
-                          onChange={(e) => {
-                            const next = [...lineItemsDraft];
-                            next[index] = { ...next[index], category: e.target.value };
-                            setLineItemsDraft(next);
-                          }}
-                        />
-                        <Input
-                          className="text-right"
-                          type="number"
-                          step="0.01"
-                          placeholder="0.00"
-                          value={item.amount}
-                          onChange={(e) => {
-                            const next = [...lineItemsDraft];
-                            next[index] = { ...next[index], amount: e.target.value };
-                            setLineItemsDraft(next);
-                          }}
-                        />
-                        <div className="flex items-center gap-1 justify-end">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            onClick={() => {
-                              setLineItemsDraft((prev) =>
-                                prev.length <= 1 ? prev : prev.filter((_, i) => i !== index),
-                              );
-                            }}
-                            disabled={lineItemsDraft.length <= 1}
-                          >
-                            ×
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="pt-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        setLineItemsDraft((prev) => [
-                          ...prev,
-                          { description: "", category: "", amount: "" },
-                        ])
-                      }
-                    >
-                      Add item
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : null}
-          <DialogFooter className="mt-6">
-            <DialogClose asChild>
-              <Button type="button" variant="outline">
-                Cancel
-              </Button>
-            </DialogClose>
-            <Button
-              type="button"
-              disabled={
-                !editingLineItemsEntry ||
-                lineItemsDraft.some(
-                  (item) =>
-                    !item.description.trim() ||
-                    !item.category.trim() ||
-                    item.amount === "",
-                ) ||
-                Math.abs(lineItemsTotal - (editingLineItemsEntry?.amount ?? 0)) >= 0.01 ||
-                setLineItemsMutation.isPending
-              }
-              onClick={() => {
-                if (!editingLineItemsEntry) return;
-                setLineItemsMutation.mutate({
-                  cashflowEntryId: editingLineItemsEntry.id,
-                  items: lineItemsDraft.map((item) => ({
-                    id: item.id,
-                    description: item.description,
-                    category: item.category,
-                    amount: Number(item.amount),
-                    notes: item.notes || undefined,
-                  })),
-                });
-              }}
-            >
-              {setLineItemsMutation.isPending ? "Saving..." : "Save breakdown"}
-            </Button>
-          </DialogFooter>
-        </DialogPopup>
-      </Dialog>
-    </div>
-  );
+	const { session } = Route.useRouteContext();
+	const navigate = useNavigate();
+
+	// Whitelist check: only whitelisted users can view finances
+	const roleQueryOptions = trpc.team.getMyRole.queryOptions();
+	const roleQuery = useQuery(roleQueryOptions);
+	const isWhitelisted = (roleQuery.data?.role ?? null) !== null;
+	const canEditDashboard =
+		roleQuery.data?.role === "VP_FINANCE" || roleQuery.data?.role === "AUDITOR";
+
+	if (roleQuery.isLoading) {
+		return (
+			<div className="flex min-h-[40vh] items-center justify-center">
+				<Loader2 className="size-8 animate-spin text-muted-foreground" />
+			</div>
+		);
+	}
+	if (roleQuery.isSuccess && !isWhitelisted) {
+		return <NotWhitelistedView />;
+	}
+
+	const cashflowSummaryQueryOptions =
+		trpc.cashflowEntries.summary.queryOptions();
+	const cashflowSummaryQuery = useQuery({
+		...cashflowSummaryQueryOptions,
+		enabled: isWhitelisted,
+	});
+
+	// Table uses server-side pagination (listPage); stats use list(100)
+	const PAGE_SIZE = 20;
+	const [page, setPage] = useState(1);
+	const [searchQuery, setSearchQuery] = useState("");
+	const [statusFilter, setStatusFilter] = useState<StatusFilterValue>("all");
+	const [dateFilterMode, setDateFilterMode] = useState<
+		"all" | "single" | "range"
+	>("all");
+	const [dateSingle, setDateSingle] = useState("");
+	const [dateFrom, setDateFrom] = useState("");
+	const [dateTo, setDateTo] = useState("");
+	const [dateSort, setDateSort] = useState<"desc" | "asc">("desc");
+	const debouncedSearch = useDebouncedValue(searchQuery.trim(), 300);
+
+	const listPageQueryOptions = trpc.cashflowEntries.listPage.queryOptions({
+		limit: PAGE_SIZE,
+		offset: (page - 1) * PAGE_SIZE,
+		search: debouncedSearch || undefined,
+		statusFilter,
+		dateFrom: dateFilterMode === "range" && dateFrom ? dateFrom : undefined,
+		dateTo: dateFilterMode === "range" && dateTo ? dateTo : undefined,
+		dateSingle:
+			dateFilterMode === "single" && dateSingle ? dateSingle : undefined,
+		dateSort,
+	});
+	const listPageQuery = useQuery({
+		...listPageQueryOptions,
+		enabled: isWhitelisted,
+	});
+	const tableItems = listPageQuery.data?.items ?? [];
+	const hasMore = listPageQuery.data?.hasMore ?? false;
+
+	const unverifiedQueryOptions =
+		trpc.accountEntries.listUnverified.queryOptions();
+	const unverifiedQuery = useQuery({
+		...unverifiedQueryOptions,
+		enabled: isWhitelisted,
+	});
+
+	const unboundReceiptsQueryOptions =
+		trpc.receiptSubmission.countUnbound.queryOptions();
+	const unboundReceiptsQuery = useQuery({
+		...unboundReceiptsQueryOptions,
+		enabled: isWhitelisted,
+	});
+	const unboundReceiptsCount = unboundReceiptsQuery.data?.count ?? 0;
+
+	const budgetOverviewQueryOptions =
+		trpc.budgetProjects.overview.queryOptions();
+	const budgetOverviewQuery = useQuery({
+		...budgetOverviewQueryOptions,
+		enabled: isWhitelisted,
+	});
+	const budgetOverview = budgetOverviewQuery.data;
+
+	const unboundListQueryOptions =
+		trpc.receiptSubmission.listUnbound.queryOptions();
+	const unboundListQuery = useQuery({
+		...unboundListQueryOptions,
+		enabled: isWhitelisted,
+	});
+	const unboundReceipts = unboundListQuery.data ?? [];
+
+	const [isDialogOpen, setIsDialogOpen] = useState(false);
+	const [formState, setFormState] = useState({
+		description: "",
+		category: "",
+		accountEntryId: "",
+	});
+
+	// Attach receipt state
+	const [attachingToEntryId, setAttachingToEntryId] = useState<string | null>(
+		null,
+	);
+	const [attachMode, setAttachMode] = useState<"select" | "upload">("select");
+	const [selectedReceiptId, setSelectedReceiptId] = useState<string>("");
+	const [uploadForm, setUploadForm] = useState({
+		submitterName: session.data?.user?.name ?? "",
+		purpose: "",
+		notes: "",
+	});
+	const [imagePreview, setImagePreview] = useState<string | null>(null);
+	const [imageData, setImageData] = useState<string>("");
+	const [imageType, setImageType] = useState<string>("");
+
+	// View receipts state
+	const [viewingReceiptsEntryId, setViewingReceiptsEntryId] = useState<
+		string | null
+	>(null);
+	const [viewingReceiptIndex, setViewingReceiptIndex] = useState<number>(0);
+
+	// PDF report dialog and cooldown (5 min whole cashflow, 2 min if >100 items)
+	const PDF_COOLDOWN_KEY = "cisco-finance-pdf-cooldown-end";
+	const [pdfDialogOpen, setPdfDialogOpen] = useState(false);
+	const [pdfDateFrom, setPdfDateFrom] = useState("");
+	const [pdfDateTo, setPdfDateTo] = useState("");
+	const [pdfGenerating, setPdfGenerating] = useState(false);
+	const [pdfCooldownEnd, setPdfCooldownEnd] = useState<number | null>(() => {
+		if (typeof sessionStorage === "undefined") return null;
+		const stored = sessionStorage.getItem(PDF_COOLDOWN_KEY);
+		const end = stored ? Number(stored) : Number.NaN;
+		return Number.isFinite(end) && end > Date.now() ? end : null;
+	});
+	const [now, setNow] = useState(() => Date.now());
+	useEffect(() => {
+		if (pdfCooldownEnd == null) return;
+		const id = setInterval(() => setNow(Date.now()), 1000);
+		return () => clearInterval(id);
+	}, [pdfCooldownEnd]);
+	useEffect(() => {
+		if (pdfCooldownEnd != null) {
+			sessionStorage.setItem(PDF_COOLDOWN_KEY, String(pdfCooldownEnd));
+		} else {
+			sessionStorage.removeItem(PDF_COOLDOWN_KEY);
+		}
+	}, [pdfCooldownEnd]);
+	useEffect(() => {
+		if (pdfCooldownEnd != null && now >= pdfCooldownEnd)
+			setPdfCooldownEnd(null);
+	}, [pdfCooldownEnd, now]);
+	const pdfCooldownRemaining =
+		pdfCooldownEnd != null && pdfCooldownEnd > now ? pdfCooldownEnd - now : 0;
+	const pdfCooldownMinutes = Math.floor(pdfCooldownRemaining / 60000);
+	const pdfCooldownSeconds = Math.floor((pdfCooldownRemaining % 60000) / 1000);
+	const pdfCooldownLabel =
+		pdfCooldownRemaining > 0
+			? `${pdfCooldownMinutes}:${pdfCooldownSeconds.toString().padStart(2, "0")} cooldown`
+			: null;
+	const isPdfOnCooldown = pdfCooldownRemaining > 0;
+
+	const receiptsQueryOptions = trpc.cashflowEntries.getReceipts.queryOptions(
+		{ id: viewingReceiptsEntryId ?? "" },
+		{ enabled: !!viewingReceiptsEntryId },
+	);
+	const receiptsQuery = useQuery(receiptsQueryOptions);
+	const receipts = receiptsQuery.data ?? [];
+
+	const createCashflowEntry = useMutation(
+		trpc.cashflowEntries.create.mutationOptions({
+			onSuccess: () => {
+				queryClient.invalidateQueries({
+					queryKey: cashflowSummaryQueryOptions.queryKey,
+				});
+				queryClient.invalidateQueries({
+					queryKey: listPageQueryOptions.queryKey,
+				});
+				queryClient.invalidateQueries({
+					queryKey: unverifiedQueryOptions.queryKey,
+				});
+				setFormState({
+					description: "",
+					category: "",
+					accountEntryId: "",
+				});
+				setIsDialogOpen(false);
+			},
+		}),
+	);
+
+	const bindReceiptMutation = useMutation(
+		trpc.receiptSubmission.bind.mutationOptions({
+			onSuccess: () => {
+				queryClient.invalidateQueries({
+					queryKey: cashflowSummaryQueryOptions.queryKey,
+				});
+				queryClient.invalidateQueries({
+					queryKey: listPageQueryOptions.queryKey,
+				});
+				queryClient.invalidateQueries({
+					queryKey: unboundReceiptsQueryOptions.queryKey,
+				});
+				queryClient.invalidateQueries({
+					queryKey: unboundListQueryOptions.queryKey,
+				});
+				resetAttachDialog();
+			},
+		}),
+	);
+
+	const submitAndBindMutation = useMutation(
+		trpc.receiptSubmission.submitAndBind.mutationOptions({
+			onSuccess: () => {
+				queryClient.invalidateQueries({
+					queryKey: cashflowSummaryQueryOptions.queryKey,
+				});
+				queryClient.invalidateQueries({
+					queryKey: listPageQueryOptions.queryKey,
+				});
+				queryClient.invalidateQueries({
+					queryKey: unboundReceiptsQueryOptions.queryKey,
+				});
+				queryClient.invalidateQueries({
+					queryKey: unboundListQueryOptions.queryKey,
+				});
+				resetAttachDialog();
+			},
+		}),
+	);
+
+	const unbindMutation = useMutation(
+		trpc.receiptSubmission.unbind.mutationOptions({
+			onSuccess: () => {
+				queryClient.invalidateQueries({
+					queryKey: cashflowSummaryQueryOptions.queryKey,
+				});
+				queryClient.invalidateQueries({
+					queryKey: listPageQueryOptions.queryKey,
+				});
+				queryClient.invalidateQueries({
+					queryKey: unboundReceiptsQueryOptions.queryKey,
+				});
+				queryClient.invalidateQueries({
+					queryKey: unboundListQueryOptions.queryKey,
+				});
+				queryClient.invalidateQueries({
+					queryKey: receiptsQueryOptions.queryKey,
+				});
+			},
+		}),
+	);
+
+	const resetAttachDialog = () => {
+		setAttachingToEntryId(null);
+		setAttachingToEntry(null);
+		setAttachMode("select");
+		setSelectedReceiptId("");
+		setUploadForm({
+			submitterName: session.data?.user?.name ?? "",
+			purpose: "",
+			notes: "",
+		});
+		setImagePreview(null);
+		setImageData("");
+		setImageType("");
+	};
+
+	const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+		const file = e.target.files?.[0];
+		if (!file) return;
+
+		if (!file.type.startsWith("image/")) {
+			return;
+		}
+
+		if (file.size > 1024 * 1024) {
+			toast.error("Receipt image must be less than 1 MB");
+			return;
+		}
+
+		const reader = new FileReader();
+		reader.onloadend = () => {
+			const base64 = reader.result as string;
+			setImagePreview(base64);
+			setImageData(base64.split(",")[1] || "");
+			setImageType(file.type);
+		};
+		reader.readAsDataURL(file);
+	};
+
+	const unverifiedEntries = unverifiedQuery.data ?? [];
+	const selectedAccountEntry = unverifiedEntries.find(
+		(e) => e.id === formState.accountEntryId,
+	);
+
+	const cashflowSummary = cashflowSummaryQuery.data;
+
+	useEffect(() => {
+		setPage(1);
+	}, [
+		debouncedSearch,
+		statusFilter,
+		dateFilterMode,
+		dateSingle,
+		dateFrom,
+		dateTo,
+		dateSort,
+	]);
+
+	// Mandatory 0.25s loading overlay when order, search, or filter changes
+	const [isTableLoading, setIsTableLoading] = useState(false);
+	const tableLoadTriggerRef = useRef(false);
+	useEffect(() => {
+		if (!tableLoadTriggerRef.current) {
+			tableLoadTriggerRef.current = true;
+			return;
+		}
+		setIsTableLoading(true);
+		const t = setTimeout(() => setIsTableLoading(false), 250);
+		return () => clearTimeout(t);
+	}, [
+		debouncedSearch,
+		statusFilter,
+		dateSort,
+		dateFilterMode,
+		dateSingle,
+		dateFrom,
+		dateTo,
+		page,
+	]);
+
+	// Store full entry when opening Attach/View dialogs so we have it after page change
+	type TableEntry = (typeof tableItems)[number];
+	const [attachingToEntry, setAttachingToEntry] = useState<TableEntry | null>(
+		null,
+	);
+	const [viewingEntry, setViewingEntry] = useState<TableEntry | null>(null);
+	const [detailEntry, setDetailEntry] = useState<TableEntry | null>(null);
+	useEffect(() => {
+		if (!attachingToEntryId) setAttachingToEntry(null);
+	}, [attachingToEntryId]);
+	useEffect(() => {
+		if (!viewingReceiptsEntryId) setViewingEntry(null);
+	}, [viewingReceiptsEntryId]);
+
+	// Use aggregate summary from server (not limited by pagination)
+	const totalInflow = cashflowSummary?.totalInflow ?? 0;
+	const totalOutflow = cashflowSummary?.totalOutflow ?? 0;
+	const netCashflow = cashflowSummary?.netCashflow ?? 0;
+	const budgetedExpenditures = budgetOverview?.totalBudget ?? 0;
+	const actualExpenditures = budgetOverview?.totalActual ?? 0;
+	const remainingBudget = Math.max(
+		0,
+		budgetedExpenditures - actualExpenditures,
+	);
+	const reservedForPlanned = budgetOverview?.reservedForPlanned ?? 0;
+	const projectedCashflow = netCashflow - reservedForPlanned;
+
+	const unverifiedNet = unverifiedEntries.reduce((sum, e) => sum + e.amount, 0);
+	const netMovement = netCashflow + unverifiedNet;
+	const deficit = netMovement - netCashflow;
+	const unverifiedAmount = unverifiedEntries.reduce(
+		(sum, e) => sum + Math.abs(e.amount),
+		0,
+	);
+	const totalVerified = totalInflow + totalOutflow;
+	const totalActivity = unverifiedAmount + totalVerified;
+	const deficitRatio =
+		totalActivity === 0
+			? 0
+			: Math.min(Math.abs(deficit) / Math.max(totalActivity, 1), 1);
+
+	// Resync cashflow entry amounts from linked account entries (e.g. after editing amount on Accounts page)
+	const resyncAmountsMutation = useMutation(
+		trpc.cashflowEntries.resyncAmountsFromAccounts.mutationOptions({
+			onSuccess: (result) => {
+				queryClient.invalidateQueries({
+					queryKey: cashflowSummaryQueryOptions.queryKey,
+				});
+				queryClient.invalidateQueries({
+					queryKey: listPageQueryOptions.queryKey,
+				});
+				queryClient.invalidateQueries({
+					queryKey: unverifiedQueryOptions.queryKey,
+				});
+				queryClient.invalidateQueries({
+					queryKey: budgetOverviewQueryOptions.queryKey,
+				});
+				if (result.updated > 0) {
+					toast.success(
+						`${result.updated} cashflow amount(s) updated from account entries`,
+					);
+				} else {
+					toast.success("Cashflow already in sync");
+				}
+			},
+			onError: () => {
+				toast.error("Failed to resync cashflow amounts");
+			},
+		}),
+	);
+	const resyncing = resyncAmountsMutation.isPending;
+	const handleResyncCashflow = () => resyncAmountsMutation.mutate();
+
+	const formatCurrency = (value: number) =>
+		new Intl.NumberFormat("en-PH", {
+			style: "currency",
+			currency: "PHP",
+			maximumFractionDigits: 2,
+		}).format(value);
+
+	const currentReceipt = receipts[viewingReceiptIndex];
+
+	// Edit description/category state
+	const [editingCashflowEntry, setEditingCashflowEntry] =
+		useState<TableEntry | null>(null);
+	const [editForm, setEditForm] = useState({ description: "", category: "" });
+
+	const updateCashflowMutation = useMutation(
+		trpc.cashflowEntries.update.mutationOptions({
+			onSuccess: () => {
+				queryClient.invalidateQueries({
+					queryKey: cashflowSummaryQueryOptions.queryKey,
+				});
+				queryClient.invalidateQueries({
+					queryKey: listPageQueryOptions.queryKey,
+				});
+				queryClient.invalidateQueries({
+					predicate: (query) =>
+						Array.isArray(query.queryKey[0]) &&
+						query.queryKey[0][0] === "accountEntries",
+				});
+				setEditingCashflowEntry(null);
+				toast.success("Transaction updated");
+			},
+			onError: (err) => {
+				toast.error(err.message ?? "Failed to update transaction");
+			},
+		}),
+	);
+
+	// Line item state
+	const [editingLineItemsEntry, setEditingLineItemsEntry] =
+		useState<TableEntry | null>(null);
+	const [lineItemsDraft, setLineItemsDraft] = useState<
+		{
+			id?: string;
+			description: string;
+			category: string;
+			amount: string;
+			notes?: string;
+		}[]
+	>([]);
+	const [lineItemsLoading, setLineItemsLoading] = useState(false);
+
+	const loadLineItems = async (entryId: string) => {
+		setLineItemsLoading(true);
+		try {
+			const items = await queryClient.fetchQuery(
+				trpc.cashflowEntries.getLineItems.queryOptions({ id: entryId }),
+			);
+			setLineItemsDraft(
+				items.length > 0
+					? items.map((item) => ({
+							id: item.id,
+							description: item.description,
+							category: item.category,
+							amount: item.amount.toString(),
+							notes: item.notes ?? "",
+						}))
+					: [
+							{
+								description: "",
+								category: "",
+								amount: "",
+							},
+						],
+			);
+		} finally {
+			setLineItemsLoading(false);
+		}
+	};
+
+	const setLineItemsMutation = useMutation(
+		trpc.cashflowEntries.setLineItems.mutationOptions({
+			onSuccess: () => {
+				queryClient.invalidateQueries({
+					queryKey: cashflowSummaryQueryOptions.queryKey,
+				});
+				queryClient.invalidateQueries({
+					queryKey: listPageQueryOptions.queryKey,
+				});
+				setEditingLineItemsEntry(null);
+			},
+			onError: (error) => {
+				toast.error(error.message || "Failed to save line items");
+			},
+		}),
+	);
+
+	const lineItemsTotal = lineItemsDraft.reduce((sum, item) => {
+		const n = Number(item.amount);
+		return sum + (Number.isFinite(n) ? n : 0);
+	}, 0);
+
+	return (
+		<div className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-4 px-3 py-4 sm:gap-6 sm:px-4 sm:py-6">
+			{/* Header Section */}
+			<div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+				<div>
+					<p className="font-medium text-primary text-xs uppercase tracking-widest">
+						Dashboard
+					</p>
+					<h1 className="font-bold text-3xl tracking-tight">
+						Finance Overview
+					</h1>
+					<p className="text-muted-foreground">
+						{canEditDashboard
+							? `Welcome back, ${session.data?.user?.name ?? "User"}`
+							: "View-only. Only VP Finance and Auditor can verify transactions and attach receipts."}
+					</p>
+				</div>
+				<div className="flex flex-wrap items-center gap-2">
+					<Button
+						variant="outline"
+						className="relative"
+						onClick={() => navigate({ to: "/receipts" })}
+					>
+						View Submitted Receipts
+						{unboundReceiptsCount > 0 && (
+							<span className="absolute -top-2 -right-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 font-semibold text-white text-xs">
+								{unboundReceiptsCount}
+							</span>
+						)}
+					</Button>
+					{canEditDashboard && (
+						<Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+							<Button variant="default" onClick={() => setIsDialogOpen(true)}>
+								Verify Transaction
+							</Button>
+							<DialogPopup>
+								<DialogHeader>
+									<DialogTitle>Verify Account Transaction</DialogTitle>
+									<DialogDescription>
+										Select a transaction and give it an official designation.
+									</DialogDescription>
+								</DialogHeader>
+								<form
+									noValidate
+									className="mt-4 space-y-4"
+									onSubmit={(event) => {
+										event.preventDefault();
+										if (!selectedAccountEntry) return;
+										if (
+											selectedAccountEntry &&
+											(!formState.description.trim() ||
+												!formState.category.trim())
+										) {
+											toast.error("Please fill out all required fields.");
+											return;
+										}
+										createCashflowEntry.mutate({
+											date: new Date(selectedAccountEntry.date).toISOString(),
+											description: formState.description,
+											category: formState.category,
+											amount: String(selectedAccountEntry.amount),
+											accountEntryId: formState.accountEntryId,
+										});
+									}}
+								>
+									<div className="space-y-2">
+										<Label>Select Transaction</Label>
+										<div className="overflow-hidden rounded-xl border border-border/60 bg-background/40 backdrop-blur-sm">
+											<div className="custom-scrollbar max-h-[240px] overflow-y-auto">
+												<table className="w-full border-collapse text-left text-xs">
+													<thead className="sticky top-0 z-10 border-border/50 border-b bg-muted/50">
+														<tr>
+															<th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase tracking-wider">
+																Date
+															</th>
+															<th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase tracking-wider">
+																Account
+															</th>
+															<th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase tracking-wider">
+																Description
+															</th>
+															<th className="px-3 py-2.5 text-right font-semibold text-muted-foreground uppercase tracking-wider">
+																Amount
+															</th>
+														</tr>
+													</thead>
+													<tbody className="divide-y divide-border/30">
+														{unverifiedEntries.length === 0 ? (
+															<tr>
+																<td
+																	colSpan={4}
+																	className="px-3 py-8 text-center text-muted-foreground"
+																>
+																	No unverified transactions. Add transactions
+																	in the Accounts page first.
+																</td>
+															</tr>
+														) : (
+															unverifiedEntries.map((e) => (
+																<tr
+																	key={e.id}
+																	onClick={() =>
+																		setFormState({
+																			...formState,
+																			accountEntryId: e.id,
+																		})
+																	}
+																	className={cn(
+																		"cursor-pointer transition-colors hover:bg-primary/5",
+																		formState.accountEntryId === e.id
+																			? "bg-primary/10 hover:bg-primary/15"
+																			: "",
+																	)}
+																>
+																	<td className="whitespace-nowrap px-3 py-3 text-muted-foreground tabular-nums">
+																		{new Date(e.date).toLocaleDateString()}
+																	</td>
+																	<td className="px-3 py-3 font-medium">
+																		{e.account}
+																	</td>
+																	<td className="min-w-[120px] px-3 py-3">
+																		{e.description}
+																	</td>
+																	<td
+																		className={cn(
+																			"whitespace-nowrap px-3 py-3 text-right font-semibold tabular-nums",
+																			e.amount >= 0
+																				? "text-emerald-500"
+																				: "text-rose-500",
+																		)}
+																	>
+																		{formatCurrency(e.amount)}
+																	</td>
+																</tr>
+															))
+														)}
+													</tbody>
+												</table>
+											</div>
+										</div>
+									</div>
+
+									{selectedAccountEntry && (
+										<>
+											<div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
+												<p className="font-semibold text-emerald-600 text-xs uppercase tracking-wider dark:text-emerald-400">
+													Selected Transaction
+												</p>
+												<div className="mt-3 grid gap-2 text-sm">
+													<div className="flex justify-between">
+														<span className="text-muted-foreground">Date</span>
+														<span className="font-medium">
+															{new Date(
+																selectedAccountEntry.date,
+															).toLocaleDateString()}
+														</span>
+													</div>
+													<div className="flex justify-between">
+														<span className="text-muted-foreground">
+															Account
+														</span>
+														<span className="font-medium">
+															{selectedAccountEntry.account}
+														</span>
+													</div>
+													<div className="flex justify-between">
+														<span className="text-muted-foreground">
+															Description
+														</span>
+														<span className="font-medium">
+															{selectedAccountEntry.description}
+														</span>
+													</div>
+													<div className="flex justify-between">
+														<span className="text-muted-foreground">
+															Amount
+														</span>
+														<span
+															className={`font-semibold ${selectedAccountEntry.amount >= 0 ? "text-emerald-500" : "text-rose-500"}`}
+														>
+															{formatCurrency(selectedAccountEntry.amount)}
+														</span>
+													</div>
+												</div>
+											</div>
+
+											<div className="space-y-2">
+												<Label htmlFor="description">
+													Official Description
+												</Label>
+												<Input
+													id="description"
+													placeholder="Official designation for this transaction"
+													value={formState.description}
+													onChange={(e) =>
+														setFormState({
+															...formState,
+															description: e.target.value,
+														})
+													}
+													required
+												/>
+											</div>
+											<div className="space-y-2">
+												<Label htmlFor="category">Category</Label>
+												<Input
+													id="category"
+													placeholder="e.g. Revenue, Expense, Transfer"
+													value={formState.category}
+													onChange={(e) =>
+														setFormState({
+															...formState,
+															category: e.target.value,
+														})
+													}
+													required
+												/>
+											</div>
+										</>
+									)}
+
+									<DialogFooter className="mt-6">
+										<DialogClose asChild>
+											<Button type="button" variant="outline">
+												Cancel
+											</Button>
+										</DialogClose>
+										<Button
+											type="submit"
+											disabled={
+												createCashflowEntry.isPending || !selectedAccountEntry
+											}
+										>
+											{createCashflowEntry.isPending
+												? "Verifying..."
+												: "Verify Transaction"}
+										</Button>
+									</DialogFooter>
+								</form>
+							</DialogPopup>
+						</Dialog>
+					)}
+					<Button
+						variant="outline"
+						onClick={() => setPdfDialogOpen(true)}
+						className="gap-2"
+					>
+						<FileDown className="size-4" />
+						{isPdfOnCooldown
+							? `PDF Report (${pdfCooldownLabel})`
+							: "PDF Report"}
+					</Button>
+				</div>
+			</div>
+
+			{/* Stats Grid */}
+			<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+				<Card>
+					<CardHeader className="pb-2">
+						<CardDescription>Total Inflow</CardDescription>
+						<CardTitle className="text-2xl text-emerald-500">
+							{formatCurrency(totalInflow)}
+						</CardTitle>
+					</CardHeader>
+					<CardContent>
+						<p className="text-muted-foreground text-xs">Cleared + pending</p>
+					</CardContent>
+				</Card>
+
+				<Card>
+					<CardHeader className="pb-2">
+						<CardDescription>Total Outflow</CardDescription>
+						<CardTitle className="text-2xl text-rose-500">
+							{formatCurrency(totalOutflow)}
+						</CardTitle>
+					</CardHeader>
+					<CardContent>
+						<p className="text-muted-foreground text-xs">
+							Operational + capital
+						</p>
+					</CardContent>
+				</Card>
+
+				<Card>
+					<CardHeader className="pb-2">
+						<CardDescription>Net Cashflow</CardDescription>
+						<CardTitle
+							className={`text-2xl ${netCashflow >= 0 ? "text-foreground" : "text-rose-500"}`}
+						>
+							{formatCurrency(netCashflow)}
+						</CardTitle>
+					</CardHeader>
+					<CardContent>
+						<p className="text-muted-foreground text-xs">
+							Current verified net balance (money left)
+						</p>
+					</CardContent>
+				</Card>
+
+				<Card>
+					<CardHeader className="pb-2">
+						<CardDescription>Projected Cashflow</CardDescription>
+						<CardTitle
+							className={`text-2xl ${
+								projectedCashflow >= 0 ? "text-emerald-500" : "text-rose-500"
+							}`}
+						>
+							{formatCurrency(projectedCashflow)}
+						</CardTitle>
+					</CardHeader>
+					<CardContent>
+						<p className="text-muted-foreground text-xs">
+							Net minus reserved for planned events
+							{budgetOverview && reservedForPlanned > 0
+								? ` (${formatCurrency(reservedForPlanned)} reserved)`
+								: ""}
+						</p>
+					</CardContent>
+				</Card>
+
+				<Card>
+					<CardHeader className="pb-2">
+						<div className="flex items-center gap-1.5">
+							<CardDescription>Deficit</CardDescription>
+							<TooltipProvider
+								side="top"
+								content={
+									<p className="text-muted-foreground">
+										Net movement (accounts) minus net cashflow (verified).
+										Positive deficit means more income in accounts than
+										verified—likely income not yet verified. Negative deficit
+										means more expenses in accounts than verified—likely
+										expenses not yet verified. Zero = in sync.
+									</p>
+								}
+							>
+								<Info
+									className="size-3.5 shrink-0 text-muted-foreground"
+									aria-hidden
+								/>
+							</TooltipProvider>
+						</div>
+						<CardTitle
+							className={`text-2xl ${deficit === 0 ? "text-foreground" : deficit > 0 ? "text-emerald-500" : "text-rose-500"}`}
+						>
+							{formatCurrency(deficit)}
+						</CardTitle>
+					</CardHeader>
+					<CardContent className="space-y-2">
+						<p className="text-muted-foreground text-xs">
+							{deficit === 0
+								? "In sync (net movement = net cashflow)"
+								: deficit > 0
+									? "Likely income not yet verified"
+									: "Likely expenses not yet verified"}
+						</p>
+						<div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+							<div
+								className={`h-2 rounded-full transition-all ${deficit === 0 ? "bg-emerald-500" : deficit > 0 ? "bg-emerald-500/80" : "bg-rose-500/80"}`}
+								style={{ width: `${(1 - deficitRatio) * 100}%` }}
+							/>
+						</div>
+					</CardContent>
+				</Card>
+			</div>
+
+			{/* Budget Planning Quick Start */}
+			{budgetOverview && (
+				<Card className="border-primary/20 bg-gradient-to-r from-primary/5 to-transparent">
+					<CardHeader>
+						<div className="flex items-center justify-between">
+							<div>
+								<CardTitle className="flex items-center gap-2">
+									Budget Planning
+									{budgetOverview.plannedCount > 0 && (
+										<span className="rounded-full bg-primary/10 px-2 py-0.5 font-medium text-primary text-xs">
+											{budgetOverview.plannedCount} active
+										</span>
+									)}
+								</CardTitle>
+								<CardDescription>
+									Track planned expenses for upcoming events
+								</CardDescription>
+							</div>
+							<Button
+								variant="outline"
+								onClick={() => navigate({ to: "/budgets" })}
+							>
+								View All Budgets
+							</Button>
+						</div>
+					</CardHeader>
+					<CardContent>
+						<div className="grid gap-4 sm:grid-cols-3">
+							<div className="rounded-lg border border-border/60 p-4">
+								<p className="font-medium text-muted-foreground text-xs">
+									Total Budget
+								</p>
+								<p className="font-semibold text-xl">
+									{formatCurrency(budgetOverview.totalBudget)}
+								</p>
+								<p className="text-muted-foreground text-xs">
+									{budgetOverview.totalProjects} project
+									{budgetOverview.totalProjects === 1 ? "" : "s"}
+								</p>
+							</div>
+							<div className="rounded-lg border border-border/60 p-4">
+								<p className="font-medium text-muted-foreground text-xs">
+									Total Spent
+								</p>
+								<p
+									className={`font-semibold text-xl ${budgetOverview.totalActual > budgetOverview.totalBudget ? "text-rose-500" : "text-emerald-500"}`}
+								>
+									{formatCurrency(budgetOverview.totalActual)}
+								</p>
+								<p className="text-muted-foreground text-xs">
+									{budgetOverview.totalBudget > 0
+										? `${((budgetOverview.totalActual / budgetOverview.totalBudget) * 100).toFixed(1)}% of budget`
+										: "No budget set"}
+								</p>
+							</div>
+							<div className="rounded-lg border border-border/60 p-4">
+								<p className="font-medium text-muted-foreground text-xs">
+									Remaining
+								</p>
+								<p
+									className={`font-semibold text-xl ${budgetOverview.totalBudget - budgetOverview.totalActual < 0 ? "text-rose-500" : ""}`}
+								>
+									{formatCurrency(
+										budgetOverview.totalBudget - budgetOverview.totalActual,
+									)}
+								</p>
+								<div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+									<div
+										className={`h-1.5 rounded-full transition-all ${budgetOverview.totalActual > budgetOverview.totalBudget ? "bg-rose-500" : "bg-emerald-500"}`}
+										style={{
+											width: `${Math.min((budgetOverview.totalActual / budgetOverview.totalBudget) * 100, 100) || 0}%`,
+										}}
+									/>
+								</div>
+							</div>
+						</div>
+						{budgetOverview.upcomingEvents.length > 0 && (
+							<div className="mt-4 border-t pt-4">
+								<p className="mb-2 font-medium text-muted-foreground text-xs">
+									Upcoming Events
+								</p>
+								<div className="space-y-2">
+									{budgetOverview.upcomingEvents.map((event) => (
+										<div
+											key={event.id}
+											className="flex items-center justify-between text-sm"
+										>
+											<div className="flex items-center gap-2">
+												<span className="font-medium">{event.name}</span>
+												{event.category && (
+													<span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground text-xs">
+														{event.category}
+													</span>
+												)}
+											</div>
+											<span className="text-muted-foreground">
+												{event.eventDate &&
+													new Date(event.eventDate).toLocaleDateString(
+														"en-PH",
+														{ month: "short", day: "numeric", year: "numeric" },
+													)}
+											</span>
+										</div>
+									))}
+								</div>
+							</div>
+						)}
+					</CardContent>
+				</Card>
+			)}
+
+			{/* Transactions Table */}
+			<Card>
+				<CardHeader>
+					<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+						<div>
+							<CardTitle>Cashflow Activity</CardTitle>
+							<CardDescription>
+								Your verified transactions. Click a row for details.
+							</CardDescription>
+						</div>
+						<div className="flex flex-wrap items-center gap-2">
+							<TooltipProvider
+								side="bottom"
+								content={
+									<p className="text-muted-foreground">
+										Update each cashflow entry’s amount to match its linked
+										account entry (e.g. after you changed an amount on the
+										Accounts page).
+									</p>
+								}
+							>
+								<Button
+									variant="outline"
+									size="sm"
+									className="gap-2 border-dashed"
+									onClick={handleResyncCashflow}
+									disabled={resyncing}
+								>
+									{resyncing ? (
+										<Loader2 className="size-4 shrink-0 animate-spin" />
+									) : (
+										<RefreshCw className="size-4 shrink-0" />
+									)}
+									{resyncing ? "Resyncing…" : "Resync"}
+								</Button>
+							</TooltipProvider>
+							<Input
+								placeholder="Search by amount or description"
+								className="w-full sm:w-72"
+								value={searchQuery}
+								onChange={(e) => setSearchQuery(e.target.value)}
+							/>
+							<DropdownMenu>
+								<DropdownMenuTrigger
+									render={(props) => (
+										<Button
+											variant="outline"
+											size="sm"
+											className="gap-2"
+											{...props}
+										>
+											<Filter className="size-4" />
+											Status:{" "}
+											{statusFilter === "all"
+												? "All"
+												: statusFilter === "no_receipt"
+													? "No receipt"
+													: statusFilter === "verified"
+														? "Verified"
+														: "Manual entry"}
+										</Button>
+									)}
+								/>
+								<DropdownMenuContent align="end">
+									<DropdownMenuItem onClick={() => setStatusFilter("all")}>
+										All statuses
+									</DropdownMenuItem>
+									<DropdownMenuItem
+										onClick={() => setStatusFilter("no_receipt")}
+									>
+										No receipt
+									</DropdownMenuItem>
+									<DropdownMenuItem onClick={() => setStatusFilter("verified")}>
+										Verified
+									</DropdownMenuItem>
+									<DropdownMenuItem onClick={() => setStatusFilter("manual")}>
+										Manual entry
+									</DropdownMenuItem>
+								</DropdownMenuContent>
+							</DropdownMenu>
+							<DropdownMenu>
+								<DropdownMenuTrigger
+									render={(props) => (
+										<Button
+											variant="outline"
+											size="sm"
+											className="gap-2"
+											{...props}
+										>
+											<Calendar className="size-4" />
+											Date:{" "}
+											{dateFilterMode === "all"
+												? "All"
+												: dateFilterMode === "single" && dateSingle
+													? dateSingle
+													: dateFilterMode === "range" && dateFrom && dateTo
+														? `${dateFrom} → ${dateTo}`
+														: "All"}
+										</Button>
+									)}
+								/>
+								<DropdownMenuContent align="end" className="min-w-64 p-0">
+									<DropdownMenuItem onClick={() => setDateFilterMode("all")}>
+										All dates
+									</DropdownMenuItem>
+									<DropdownMenuSeparator />
+									<DropdownMenuGroup>
+										<DropdownMenuLabel className="px-2 py-1.5 text-xs">
+											Specific date
+										</DropdownMenuLabel>
+										<div
+											className="px-2 pb-2"
+											onClick={(e) => e.stopPropagation()}
+											onKeyDown={(e) => e.stopPropagation()}
+										>
+											<Input
+												type="date"
+												value={dateSingle}
+												onChange={(e) => {
+													setDateSingle(e.target.value);
+													setDateFilterMode("single");
+												}}
+												className="h-9 text-xs"
+											/>
+										</div>
+									</DropdownMenuGroup>
+									<DropdownMenuSeparator />
+									<DropdownMenuGroup>
+										<DropdownMenuLabel className="px-2 py-1.5 text-xs">
+											Date range
+										</DropdownMenuLabel>
+										<div
+											className="flex flex-col gap-2 px-2 pb-3"
+											onClick={(e) => e.stopPropagation()}
+											onKeyDown={(e) => e.stopPropagation()}
+										>
+											<div className="flex items-center gap-2">
+												<Label className="shrink-0 text-muted-foreground text-xs">
+													From
+												</Label>
+												<Input
+													type="date"
+													value={dateFrom}
+													onChange={(e) => {
+														setDateFrom(e.target.value);
+														setDateFilterMode("range");
+													}}
+													className="h-9 text-xs"
+												/>
+											</div>
+											<div className="flex items-center gap-2">
+												<Label className="shrink-0 text-muted-foreground text-xs">
+													To
+												</Label>
+												<Input
+													type="date"
+													value={dateTo}
+													onChange={(e) => {
+														setDateTo(e.target.value);
+														setDateFilterMode("range");
+													}}
+													className="h-9 text-xs"
+												/>
+											</div>
+										</div>
+									</DropdownMenuGroup>
+								</DropdownMenuContent>
+							</DropdownMenu>
+						</div>
+					</div>
+				</CardHeader>
+				<CardContent className="p-0">
+					{/* Pagination above table */}
+					{(tableItems.length > 0 || page > 1) && (
+						<div className="flex items-center justify-between gap-4 border-border/50 border-b bg-muted/20 px-5 py-3">
+							<p className="text-muted-foreground text-xs">
+								Showing {(page - 1) * PAGE_SIZE + 1}–
+								{(page - 1) * PAGE_SIZE + tableItems.length}
+							</p>
+							<div className="flex items-center gap-2">
+								<Button
+									variant="outline"
+									size="sm"
+									disabled={page <= 1}
+									onClick={() => setPage((p) => Math.max(1, p - 1))}
+								>
+									Previous
+								</Button>
+								<span className="text-muted-foreground text-sm">
+									Page {page}
+								</span>
+								<Button
+									variant="outline"
+									size="sm"
+									disabled={!hasMore}
+									onClick={() => setPage((p) => p + 1)}
+								>
+									Next
+								</Button>
+							</div>
+						</div>
+					)}
+					<div className="overflow-x-auto">
+						<table className="w-full text-left text-sm">
+							<thead className="border-border/50 border-y bg-muted/30 text-muted-foreground text-xs">
+								<tr>
+									<th className="px-5 py-3 font-medium">
+										<Button
+											variant="ghost"
+											size="sm"
+											className="-ml-2 h-8 gap-1.5 font-medium text-muted-foreground hover:text-foreground"
+											onClick={() =>
+												setDateSort((s) => (s === "desc" ? "asc" : "desc"))
+											}
+										>
+											Date
+											{dateSort === "desc" ? (
+												<ArrowDown className="size-3.5 shrink-0" />
+											) : (
+												<ArrowUp className="size-3.5 shrink-0" />
+											)}
+										</Button>
+									</th>
+									<th className="px-5 py-3 font-medium">Description</th>
+									<th className="px-5 py-3 font-medium">Category</th>
+									<th className="px-5 py-3 font-medium">Account</th>
+									<th className="px-5 py-3 text-right font-medium">Amount</th>
+									<th className="px-5 py-3 font-medium">Status</th>
+									<th className="px-5 py-3 font-medium">Receipts</th>
+								</tr>
+							</thead>
+							<tbody>
+								{tableItems.length === 0 ? (
+									<tr>
+										<td
+											colSpan={7}
+											className="px-5 py-8 text-center text-muted-foreground"
+										>
+											{debouncedSearch ||
+											statusFilter !== "all" ||
+											dateFilterMode !== "all"
+												? "No transactions match your search or filter."
+												: "No transactions yet. Verify transactions from the Accounts page."}
+										</td>
+									</tr>
+								) : (
+									tableItems.map((entry) => {
+										const hasAccountEntry = !!entry.accountEntryId;
+										const noReceipt = entry.receiptsCount === 0;
+										return (
+											<tr
+												key={entry.id}
+												role="button"
+												tabIndex={0}
+												onClick={() => setDetailEntry(entry)}
+												onKeyDown={(e) => {
+													if (e.key === "Enter" || e.key === " ") {
+														e.preventDefault();
+														setDetailEntry(entry);
+													}
+												}}
+												className={cn(
+													"cursor-pointer border-border/30 border-b transition-colors last:border-0 hover:bg-muted/20",
+													hasAccountEntry && "bg-emerald-500/5",
+													noReceipt && "bg-red-500/5",
+												)}
+											>
+												<td className="px-5 py-4 text-muted-foreground">
+													{new Date(entry.date).toLocaleDateString()}
+												</td>
+												<td className="px-5 py-4">
+													<div className="font-medium">{entry.description}</div>
+													<div className="text-muted-foreground text-xs">
+														#{entry.id.slice(0, 8)}
+													</div>
+													{hasAccountEntry && entry.accountEntry && (
+														<div className="mt-1 text-emerald-600 text-xs dark:text-emerald-400">
+															From: {entry.accountEntry.account} —{" "}
+															{entry.accountEntry.description}
+														</div>
+													)}
+												</td>
+												<td className="px-5 py-4">
+													<span className="rounded-lg bg-muted px-2 py-1 font-medium text-xs">
+														{entry.category}
+													</span>
+												</td>
+												<td className="px-5 py-4 text-muted-foreground">
+													{entry.accountEntry?.account ?? "—"}
+												</td>
+												<td
+													className={`px-5 py-4 text-right font-semibold ${
+														entry.amount >= 0
+															? "text-emerald-500"
+															: "text-rose-500"
+													}`}
+												>
+													{formatCurrency(entry.amount)}
+												</td>
+												<td className="px-5 py-4">
+													{entry.receiptsCount === 0 ? (
+														<span className="inline-flex items-center rounded-full bg-red-500/10 px-2.5 py-1 font-medium text-red-600 text-xs dark:text-red-400">
+															No receipt
+														</span>
+													) : hasAccountEntry ? (
+														<span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2.5 py-1 font-medium text-emerald-600 text-xs dark:text-emerald-400">
+															Verified
+														</span>
+													) : (
+														<span className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 font-medium text-muted-foreground text-xs">
+															Manual entry
+														</span>
+													)}
+												</td>
+												<td className="px-5 py-4">
+													<div className="flex flex-col gap-1">
+														<div className="flex items-center gap-2">
+															<span className="text-muted-foreground">
+																{entry.receiptsCount} file
+																{entry.receiptsCount === 1 ? "" : "s"}
+															</span>
+															{entry.receiptsCount > 0 && (
+																<Button
+																	size="xs"
+																	variant="ghost"
+																	onClick={(e) => {
+																		e.stopPropagation();
+																		setViewingReceiptsEntryId(entry.id);
+																		setViewingEntry(entry);
+																		setViewingReceiptIndex(0);
+																	}}
+																>
+																	View
+																</Button>
+															)}
+															{canEditDashboard && (
+																<>
+																	<Button
+																		size="xs"
+																		variant="ghost"
+																		onClick={(e) => {
+																			e.stopPropagation();
+																			setAttachingToEntryId(entry.id);
+																			setAttachingToEntry(entry);
+																		}}
+																	>
+																		Attach
+																	</Button>
+																	<Button
+																		size="xs"
+																		variant="ghost"
+																		onClick={(e) => {
+																			e.stopPropagation();
+																			setEditingCashflowEntry(entry);
+																			setEditForm({
+																				description: entry.description,
+																				category: entry.category,
+																			});
+																		}}
+																	>
+																		Edit
+																	</Button>
+																</>
+															)}
+														</div>
+														<div className="flex items-center gap-2">
+															{Array.isArray(entry.lineItems) &&
+															entry.lineItems.length > 0 ? (
+																<span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 font-medium text-[10px] text-muted-foreground">
+																	{entry.lineItems.length} item
+																	{entry.lineItems.length === 1 ? "" : "s"}
+																</span>
+															) : (
+																<span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 font-medium text-[10px] text-muted-foreground">
+																	No breakdown
+																</span>
+															)}
+															{canEditDashboard && (
+																<Button
+																	size="xs"
+																	variant="outline"
+																	onClick={(e) => {
+																		e.stopPropagation();
+																		setEditingLineItemsEntry(entry);
+																		void loadLineItems(entry.id);
+																	}}
+																>
+																	Breakdown
+																</Button>
+															)}
+														</div>
+													</div>
+												</td>
+											</tr>
+										);
+									})
+								)}
+							</tbody>
+						</table>
+					</div>
+				</CardContent>
+			</Card>
+
+			{/* Entry detail popup — click a row to open */}
+			<Dialog
+				open={!!detailEntry}
+				onOpenChange={(open) => !open && setDetailEntry(null)}
+			>
+				<DialogPopup className="max-w-xl">
+					{detailEntry && (
+						<>
+							<DialogHeader className="text-left">
+								<DialogTitle className="pr-8 text-lg leading-tight">
+									{detailEntry.description}
+								</DialogTitle>
+								<DialogDescription className="text-left">
+									<span
+										className={cn(
+											"font-semibold tabular-nums",
+											detailEntry.amount >= 0
+												? "text-emerald-600 dark:text-emerald-400"
+												: "text-rose-600 dark:text-rose-400",
+										)}
+									>
+										{formatCurrency(detailEntry.amount)}
+									</span>
+									<span className="ml-2 text-muted-foreground">
+										·{" "}
+										{new Date(detailEntry.date).toLocaleDateString("en-PH", {
+											weekday: "short",
+											year: "numeric",
+											month: "short",
+											day: "numeric",
+										})}
+									</span>
+								</DialogDescription>
+							</DialogHeader>
+
+							<div className="mt-5 space-y-4">
+								{/* Overview */}
+								<div className="rounded-xl border border-border/60 bg-muted/20 p-4">
+									<p className="mb-3 font-semibold text-muted-foreground text-xs uppercase tracking-wider">
+										Overview
+									</p>
+									<dl className="grid gap-2 text-sm">
+										<div className="flex justify-between gap-4">
+											<dt className="text-muted-foreground">Category</dt>
+											<dd>
+												<span className="rounded-md bg-muted px-2 py-0.5 font-medium">
+													{detailEntry.category}
+												</span>
+											</dd>
+										</div>
+										<div className="flex justify-between gap-4">
+											<dt className="text-muted-foreground">Account</dt>
+											<dd className="font-medium">
+												{detailEntry.accountEntry?.account ?? "—"}
+											</dd>
+										</div>
+										<div className="flex justify-between gap-4">
+											<dt className="text-muted-foreground">Status</dt>
+											<dd>
+												{detailEntry.receiptsCount === 0 ? (
+													<span className="inline-flex items-center rounded-full bg-red-500/10 px-2.5 py-1 font-medium text-red-600 text-xs dark:text-red-400">
+														No receipt
+													</span>
+												) : detailEntry.accountEntryId ? (
+													<span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2.5 py-1 font-medium text-emerald-600 text-xs dark:text-emerald-400">
+														Verified
+													</span>
+												) : (
+													<span className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 font-medium text-muted-foreground text-xs">
+														Manual entry
+													</span>
+												)}
+											</dd>
+										</div>
+										<div className="flex justify-between gap-4">
+											<dt className="text-muted-foreground">Entry ID</dt>
+											<dd className="font-mono text-muted-foreground text-xs">
+												#{detailEntry.id.slice(0, 8)}
+											</dd>
+										</div>
+									</dl>
+								</div>
+
+								{/* Source (linked account entry) */}
+								{detailEntry.accountEntry && (
+									<div className="rounded-xl border border-border/60 bg-emerald-500/5 p-4">
+										<p className="mb-3 font-semibold text-emerald-700 text-xs uppercase tracking-wider dark:text-emerald-400">
+											Linked account transaction
+										</p>
+										<p className="text-sm">
+											<span className="font-medium">
+												{detailEntry.accountEntry.account}
+											</span>
+											<span className="text-muted-foreground"> — </span>
+											{detailEntry.accountEntry.description}
+										</p>
+									</div>
+								)}
+
+								{/* Line items */}
+								{Array.isArray(detailEntry.lineItems) &&
+									detailEntry.lineItems.length > 0 && (
+										<div className="rounded-xl border border-border/60 bg-muted/20 p-4">
+											<p className="mb-3 font-semibold text-muted-foreground text-xs uppercase tracking-wider">
+												Breakdown ({detailEntry.lineItems.length} item
+												{detailEntry.lineItems.length === 1 ? "" : "s"})
+											</p>
+											<div className="space-y-2">
+												{detailEntry.lineItems.map((item) => (
+													<div
+														key={item.id}
+														className="flex items-center justify-between gap-4 rounded-lg border border-border/40 bg-background/60 px-3 py-2 text-sm"
+													>
+														<div className="min-w-0 flex-1">
+															<p className="truncate font-medium">
+																{item.description}
+															</p>
+															<p className="text-muted-foreground text-xs">
+																{item.category}
+															</p>
+														</div>
+														<span
+															className={cn(
+																"shrink-0 font-medium tabular-nums",
+																item.amount >= 0
+																	? "text-emerald-600 dark:text-emerald-400"
+																	: "text-rose-600 dark:text-rose-400",
+															)}
+														>
+															{formatCurrency(item.amount)}
+														</span>
+													</div>
+												))}
+												<div className="flex justify-between border-border/60 border-t pt-2 font-semibold text-sm">
+													<span>Total</span>
+													<span
+														className={cn(
+															"tabular-nums",
+															detailEntry.amount >= 0
+																? "text-emerald-600 dark:text-emerald-400"
+																: "text-rose-600 dark:text-rose-400",
+														)}
+													>
+														{formatCurrency(detailEntry.amount)}
+													</span>
+												</div>
+											</div>
+										</div>
+									)}
+
+								{/* Receipts */}
+								<div className="rounded-xl border border-border/60 bg-muted/20 p-4">
+									<p className="mb-3 font-semibold text-muted-foreground text-xs uppercase tracking-wider">
+										Receipts
+									</p>
+									<div className="flex flex-wrap items-center gap-2">
+										<span className="text-muted-foreground text-sm">
+											{detailEntry.receiptsCount} file
+											{detailEntry.receiptsCount === 1 ? "" : "s"} attached
+										</span>
+										{detailEntry.receiptsCount > 0 && (
+											<Button
+												size="sm"
+												variant="outline"
+												onClick={() => {
+													setDetailEntry(null);
+													setViewingReceiptsEntryId(detailEntry.id);
+													setViewingEntry(detailEntry);
+													setViewingReceiptIndex(0);
+												}}
+											>
+												View receipts
+											</Button>
+										)}
+										{canEditDashboard && (
+											<Button
+												size="sm"
+												variant="outline"
+												onClick={() => {
+													setDetailEntry(null);
+													setAttachingToEntryId(detailEntry.id);
+													setAttachingToEntry(detailEntry);
+												}}
+											>
+												{detailEntry.receiptsCount > 0
+													? "Attach more"
+													: "Attach receipt"}
+											</Button>
+										)}
+									</div>
+								</div>
+							</div>
+
+							<DialogFooter className="mt-6 flex-wrap gap-2">
+								<DialogClose asChild>
+									<Button variant="outline">Close</Button>
+								</DialogClose>
+								{canEditDashboard && (
+									<>
+										<Button
+											variant="outline"
+											onClick={() => {
+												setDetailEntry(null);
+												setEditingCashflowEntry(detailEntry);
+												setEditForm({
+													description: detailEntry.description,
+													category: detailEntry.category,
+												});
+											}}
+										>
+											Edit
+										</Button>
+										<Button
+											variant="outline"
+											onClick={() => {
+												setDetailEntry(null);
+												setEditingLineItemsEntry(detailEntry);
+												void loadLineItems(detailEntry.id);
+											}}
+										>
+											Breakdown
+										</Button>
+									</>
+								)}
+							</DialogFooter>
+						</>
+					)}
+				</DialogPopup>
+			</Dialog>
+
+			{/* Full-page loading overlay when order/search/filter changes */}
+			{isTableLoading && (
+				<div
+					className="fade-in fixed inset-0 z-50 flex animate-in items-center justify-center bg-background/50 backdrop-blur-sm duration-200 ease-out"
+					aria-hidden="true"
+				>
+					<Loader2 className="size-12 animate-[spin_1.2s_linear_infinite] text-primary" />
+				</div>
+			)}
+
+			{/* View Receipts Dialog */}
+			<Dialog
+				open={!!viewingReceiptsEntryId}
+				onOpenChange={(open) => {
+					if (!open) {
+						setViewingReceiptsEntryId(null);
+						setViewingEntry(null);
+						setViewingReceiptIndex(0);
+					}
+				}}
+			>
+				<DialogPopup className="max-w-2xl">
+					<DialogHeader>
+						<DialogTitle>Attached Receipts</DialogTitle>
+						<DialogDescription>
+							{viewingEntry?.description} — {receipts.length} receipt
+							{receipts.length === 1 ? "" : "s"}
+						</DialogDescription>
+					</DialogHeader>
+
+					{receiptsQuery.isLoading ? (
+						<div className="py-8 text-center text-muted-foreground">
+							Loading...
+						</div>
+					) : receipts.length === 0 ? (
+						<div className="py-8 text-center text-muted-foreground">
+							No receipts attached.
+						</div>
+					) : (
+						<div className="mt-4 space-y-4">
+							{/* Receipt Navigation */}
+							{receipts.length > 1 && (
+								<div className="flex items-center justify-between">
+									<Button
+										size="sm"
+										variant="outline"
+										onClick={() =>
+											setViewingReceiptIndex((i) => Math.max(0, i - 1))
+										}
+										disabled={viewingReceiptIndex === 0}
+									>
+										Previous
+									</Button>
+									<span className="text-muted-foreground text-sm">
+										{viewingReceiptIndex + 1} of {receipts.length}
+									</span>
+									<Button
+										size="sm"
+										variant="outline"
+										onClick={() =>
+											setViewingReceiptIndex((i) =>
+												Math.min(receipts.length - 1, i + 1),
+											)
+										}
+										disabled={viewingReceiptIndex === receipts.length - 1}
+									>
+										Next
+									</Button>
+								</div>
+							)}
+
+							{currentReceipt && (
+								<>
+									{/* Receipt Details */}
+									<div className="grid gap-4 sm:grid-cols-2">
+										<div>
+											<p className="font-medium text-muted-foreground text-xs">
+												Submitter
+											</p>
+											<p className="font-medium">
+												{currentReceipt.submitterName}
+											</p>
+										</div>
+										<div>
+											<p className="font-medium text-muted-foreground text-xs">
+												Date Submitted
+											</p>
+											<p className="font-medium">
+												{new Date(currentReceipt.createdAt).toLocaleString()}
+											</p>
+										</div>
+										<div className="sm:col-span-2">
+											<p className="font-medium text-muted-foreground text-xs">
+												Purpose
+											</p>
+											<p className="font-medium">{currentReceipt.purpose}</p>
+										</div>
+										{currentReceipt.notes && (
+											<div className="sm:col-span-2">
+												<p className="font-medium text-muted-foreground text-xs">
+													Notes
+												</p>
+												<p>{currentReceipt.notes}</p>
+											</div>
+										)}
+									</div>
+
+									{/* Receipt Image */}
+									<div>
+										<p className="mb-2 font-medium text-muted-foreground text-xs">
+											Receipt Image
+										</p>
+										<div className="overflow-hidden rounded-lg border border-border/60 bg-muted/20">
+											<img
+												src={`data:${currentReceipt.imageType};base64,${currentReceipt.imageData}`}
+												alt="Receipt"
+												className="max-h-80 w-full object-contain"
+											/>
+										</div>
+									</div>
+
+									{/* Unbind Button — only VP / Auditor */}
+									{canEditDashboard && (
+										<div className="border-t pt-4">
+											<Button
+												variant="outline"
+												className="text-amber-600 hover:text-amber-700"
+												onClick={() =>
+													unbindMutation.mutate({ id: currentReceipt.id })
+												}
+												disabled={unbindMutation.isPending}
+											>
+												{unbindMutation.isPending
+													? "Unbinding..."
+													: "Unbind This Receipt"}
+											</Button>
+										</div>
+									)}
+								</>
+							)}
+						</div>
+					)}
+
+					<DialogFooter className="mt-6">
+						<DialogClose asChild>
+							<Button variant="outline">Close</Button>
+						</DialogClose>
+						{canEditDashboard && (
+							<Button
+								onClick={() => {
+									setViewingReceiptsEntryId(null);
+									setAttachingToEntryId(viewingEntry?.id ?? null);
+								}}
+							>
+								Attach More
+							</Button>
+						)}
+					</DialogFooter>
+				</DialogPopup>
+			</Dialog>
+
+			{/* Edit description & category dialog */}
+			<Dialog
+				open={editingCashflowEntry != null}
+				onOpenChange={(open) => {
+					if (!open) setEditingCashflowEntry(null);
+				}}
+			>
+				<DialogPopup className="max-w-md">
+					<DialogHeader>
+						<DialogTitle>Edit transaction</DialogTitle>
+						<DialogDescription>
+							Update description and category. If this transaction was verified
+							from an account entry, the account entry description will be
+							updated to match.
+						</DialogDescription>
+					</DialogHeader>
+					<div className="mt-4 space-y-4">
+						<div className="space-y-2">
+							<Label htmlFor="edit-desc">Description</Label>
+							<Input
+								id="edit-desc"
+								value={editForm.description}
+								onChange={(e) =>
+									setEditForm((prev) => ({
+										...prev,
+										description: e.target.value,
+									}))
+								}
+								placeholder="Transaction description"
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label htmlFor="edit-cat">Category</Label>
+							<Input
+								id="edit-cat"
+								value={editForm.category}
+								onChange={(e) =>
+									setEditForm((prev) => ({ ...prev, category: e.target.value }))
+								}
+								placeholder="Category"
+							/>
+						</div>
+					</div>
+					<DialogFooter className="mt-6">
+						<DialogClose asChild>
+							<Button variant="outline">Cancel</Button>
+						</DialogClose>
+						<Button
+							disabled={
+								updateCashflowMutation.isPending ||
+								editForm.description.trim().length < 2 ||
+								editForm.category.trim().length < 2
+							}
+							onClick={() => {
+								if (!editingCashflowEntry) return;
+								updateCashflowMutation.mutate({
+									id: editingCashflowEntry.id,
+									description: editForm.description.trim(),
+									category: editForm.category.trim(),
+								});
+							}}
+						>
+							{updateCashflowMutation.isPending ? "Saving..." : "Save changes"}
+						</Button>
+					</DialogFooter>
+				</DialogPopup>
+			</Dialog>
+
+			{/* PDF Report Dialog */}
+			<Dialog open={pdfDialogOpen} onOpenChange={setPdfDialogOpen}>
+				<DialogPopup className="max-w-sm">
+					<DialogHeader>
+						<DialogTitle>Generate PDF Report</DialogTitle>
+						<DialogDescription>
+							Choose a date range. The report will include a table of cashflow
+							entries and attached receipts in order (4–8 receipts per page).
+						</DialogDescription>
+					</DialogHeader>
+					<div className="mt-4 space-y-4">
+						<div className="space-y-2">
+							<Label className="text-muted-foreground">From</Label>
+							<Input
+								type="date"
+								value={pdfDateFrom}
+								onChange={(e) => setPdfDateFrom(e.target.value)}
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label className="text-muted-foreground">To</Label>
+							<Input
+								type="date"
+								value={pdfDateTo}
+								onChange={(e) => setPdfDateTo(e.target.value)}
+							/>
+						</div>
+						<p className="text-muted-foreground text-xs">
+							Leave both empty for all dates.
+						</p>
+						{!pdfDateFrom.trim() && !pdfDateTo.trim() && (
+							<div className="rounded-lg border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-amber-800 text-xs dark:text-amber-200">
+								<p className="font-medium">Heavy use notice</p>
+								<p className="mt-1">
+									Reporting all dates uses significant server and browser
+									resources. A <strong>5-minute cooldown</strong> will apply
+									before you can generate another report.
+								</p>
+							</div>
+						)}
+						<p className="text-muted-foreground text-xs">
+							Reports with over 100 entries trigger a 2-minute cooldown. The
+							cooldown timer is shown on the Generate PDF button.
+						</p>
+					</div>
+					<DialogFooter className="mt-6">
+						<DialogClose asChild>
+							<button
+								type="button"
+								className={buttonVariants({ variant: "outline" })}
+							>
+								Cancel
+							</button>
+						</DialogClose>
+						<Button
+							disabled={pdfGenerating || isPdfOnCooldown}
+							onClick={async () => {
+								const noDateRange = !pdfDateFrom.trim() && !pdfDateTo.trim();
+								setPdfGenerating(true);
+								try {
+									const data = await queryClient.fetchQuery(
+										trpc.report.getReportData.queryOptions({
+											dateFrom: pdfDateFrom.trim() || undefined,
+											dateTo: pdfDateTo.trim() || undefined,
+											dateSort: "desc",
+										}),
+									);
+									// Fetch receipt images in batches to stay under response size limits
+									const receiptIds = data.receiptsInOrder.map(
+										(r) => r.receipt.id,
+									);
+									const BATCH = 5; // batch size to balance speed vs 5MB response limit
+									for (let i = 0; i < receiptIds.length; i += BATCH) {
+										const batch = receiptIds.slice(i, i + BATCH);
+										const images = await queryClient.fetchQuery(
+											trpc.report.getReportReceiptImages.queryOptions({
+												receiptIds: batch,
+											}),
+										);
+										const byId = new Map(images.map((img) => [img.id, img]));
+										for (const row of data.receiptsInOrder) {
+											const img = byId.get(row.receipt.id);
+											if (img) row.receipt.imageData = img.imageData;
+										}
+									}
+									downloadPdfReport(data, {
+										dateFrom: pdfDateFrom.trim() || undefined,
+										dateTo: pdfDateTo.trim() || undefined,
+									});
+									setPdfDialogOpen(false);
+									const entryCount = data.entries.length;
+									let cooldownMs = 0;
+									if (noDateRange) cooldownMs = 5 * 60 * 1000;
+									else if (entryCount > 100) cooldownMs = 2 * 60 * 1000;
+									if (cooldownMs > 0)
+										setPdfCooldownEnd(Date.now() + cooldownMs);
+								} finally {
+									setPdfGenerating(false);
+								}
+							}}
+						>
+							{pdfGenerating ? (
+								<>
+									<Loader2 className="size-4 animate-spin" />
+									Generating…
+								</>
+							) : isPdfOnCooldown ? (
+								`Generate PDF (${pdfCooldownLabel})`
+							) : (
+								"Generate PDF"
+							)}
+						</Button>
+					</DialogFooter>
+				</DialogPopup>
+			</Dialog>
+
+			{/* Attach Receipt Dialog */}
+			<Dialog
+				open={!!attachingToEntryId}
+				onOpenChange={(open) => !open && resetAttachDialog()}
+			>
+				<DialogPopup className="max-w-lg">
+					<DialogHeader>
+						<DialogTitle>Attach Receipt</DialogTitle>
+						<DialogDescription>
+							Attach a receipt to: {attachingToEntry?.description}
+						</DialogDescription>
+					</DialogHeader>
+
+					<div className="mt-4 space-y-4">
+						{/* Mode Tabs */}
+						<div className="flex rounded-lg border border-border/60 p-1">
+							<button
+								type="button"
+								className={`flex-1 rounded-md px-3 py-2 font-medium text-sm transition-colors ${
+									attachMode === "select"
+										? "bg-primary text-primary-foreground"
+										: "text-muted-foreground hover:text-foreground"
+								}`}
+								onClick={() => setAttachMode("select")}
+							>
+								Select Existing
+							</button>
+							<button
+								type="button"
+								className={`flex-1 rounded-md px-3 py-2 font-medium text-sm transition-colors ${
+									attachMode === "upload"
+										? "bg-primary text-primary-foreground"
+										: "text-muted-foreground hover:text-foreground"
+								}`}
+								onClick={() => setAttachMode("upload")}
+							>
+								Upload New
+							</button>
+						</div>
+
+						{attachMode === "select" ? (
+							<div className="space-y-4">
+								<div className="space-y-2">
+									<Label>Select Unbound Receipt</Label>
+									<div className="overflow-hidden rounded-xl border border-border/60 bg-background/40 backdrop-blur-sm">
+										<div className="custom-scrollbar max-h-[240px] overflow-y-auto">
+											<table className="w-full border-collapse text-left text-xs">
+												<thead className="sticky top-0 z-10 border-border/50 border-b bg-muted/50">
+													<tr>
+														<th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase tracking-wider">
+															Date
+														</th>
+														<th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase tracking-wider">
+															Submitter
+														</th>
+														<th className="px-3 py-2.5 font-semibold text-muted-foreground uppercase tracking-wider">
+															Purpose
+														</th>
+													</tr>
+												</thead>
+												<tbody className="divide-y divide-border/30">
+													{unboundReceipts.length === 0 ? (
+														<tr>
+															<td
+																colSpan={3}
+																className="px-3 py-8 text-center text-muted-foreground"
+															>
+																No unbound receipts available. Upload a new one
+																instead.
+															</td>
+														</tr>
+													) : (
+														unboundReceipts.map((r) => (
+															<tr
+																key={r.id}
+																onClick={() => setSelectedReceiptId(r.id)}
+																className={cn(
+																	"cursor-pointer transition-colors hover:bg-primary/5",
+																	selectedReceiptId === r.id
+																		? "bg-primary/10 hover:bg-primary/15"
+																		: "",
+																)}
+															>
+																<td className="whitespace-nowrap px-3 py-3 text-muted-foreground tabular-nums">
+																	{new Date(r.createdAt).toLocaleDateString()}
+																</td>
+																<td className="whitespace-nowrap px-3 py-3 font-medium">
+																	{r.submitterName}
+																</td>
+																<td className="min-w-[120px] px-3 py-3">
+																	{r.purpose}
+																</td>
+															</tr>
+														))
+													)}
+												</tbody>
+											</table>
+										</div>
+									</div>
+								</div>
+								<DialogFooter>
+									<DialogClose asChild>
+										<Button type="button" variant="outline">
+											Cancel
+										</Button>
+									</DialogClose>
+									<Button
+										onClick={() => {
+											if (attachingToEntryId && selectedReceiptId) {
+												bindReceiptMutation.mutate({
+													id: selectedReceiptId,
+													cashflowEntryId: attachingToEntryId,
+												});
+											}
+										}}
+										disabled={
+											!selectedReceiptId || bindReceiptMutation.isPending
+										}
+									>
+										{bindReceiptMutation.isPending
+											? "Binding..."
+											: "Bind Receipt"}
+									</Button>
+								</DialogFooter>
+							</div>
+						) : (
+							<form
+								noValidate
+								className="space-y-4"
+								onSubmit={(e) => {
+									e.preventDefault();
+									if (!attachingToEntryId || !imageData) return;
+									if (
+										!uploadForm.submitterName.trim() ||
+										!uploadForm.purpose.trim()
+									) {
+										toast.error("Please fill out all required fields.");
+										return;
+									}
+									submitAndBindMutation.mutate({
+										submitterName: uploadForm.submitterName,
+										purpose: uploadForm.purpose,
+										notes: uploadForm.notes || undefined,
+										imageData,
+										imageType,
+										cashflowEntryId: attachingToEntryId,
+									});
+								}}
+							>
+								<div className="space-y-2">
+									<Label htmlFor="uploaderName">Your Name</Label>
+									<Input
+										id="uploaderName"
+										value={uploadForm.submitterName}
+										onChange={(e) =>
+											setUploadForm({
+												...uploadForm,
+												submitterName: e.target.value,
+											})
+										}
+										required
+									/>
+								</div>
+								<div className="space-y-2">
+									<Label htmlFor="purpose">Purpose</Label>
+									<Input
+										id="purpose"
+										placeholder="What is this receipt for?"
+										value={uploadForm.purpose}
+										onChange={(e) =>
+											setUploadForm({ ...uploadForm, purpose: e.target.value })
+										}
+										required
+									/>
+								</div>
+								<div className="space-y-2">
+									<Label htmlFor="notes">Notes (optional)</Label>
+									<Textarea
+										id="notes"
+										placeholder="Any additional notes..."
+										value={uploadForm.notes}
+										onChange={(e) =>
+											setUploadForm({ ...uploadForm, notes: e.target.value })
+										}
+										rows={2}
+									/>
+								</div>
+								<div className="space-y-2">
+									<Label htmlFor="receiptImage">Receipt Image</Label>
+									<Input
+										id="receiptImage"
+										type="file"
+										accept="image/*"
+										onChange={handleImageChange}
+										required
+									/>
+									{imagePreview && (
+										<div className="mt-2 overflow-hidden rounded-lg border border-border/60">
+											<img
+												src={imagePreview}
+												alt="Receipt preview"
+												className="max-h-40 w-full object-contain"
+											/>
+										</div>
+									)}
+								</div>
+								<DialogFooter>
+									<DialogClose asChild>
+										<Button type="button" variant="outline">
+											Cancel
+										</Button>
+									</DialogClose>
+									<Button
+										type="submit"
+										disabled={!imageData || submitAndBindMutation.isPending}
+									>
+										{submitAndBindMutation.isPending
+											? "Uploading..."
+											: "Upload & Bind"}
+									</Button>
+								</DialogFooter>
+							</form>
+						)}
+					</div>
+				</DialogPopup>
+			</Dialog>
+
+			{/* Line Items Breakdown Dialog */}
+			<Dialog
+				open={!!editingLineItemsEntry}
+				onOpenChange={(open) => {
+					if (!open) {
+						setEditingLineItemsEntry(null);
+					}
+				}}
+			>
+				<DialogPopup className="max-w-2xl">
+					<DialogHeader>
+						<DialogTitle>Breakdown transaction</DialogTitle>
+						<DialogDescription>
+							{editingLineItemsEntry
+								? `${editingLineItemsEntry.description} — ${formatCurrency(editingLineItemsEntry.amount)}`
+								: ""}
+						</DialogDescription>
+					</DialogHeader>
+					{editingLineItemsEntry ? (
+						<div className="mt-4 space-y-4">
+							<div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs">
+								<div className="space-y-0.5">
+									<p className="text-muted-foreground">Parent amount</p>
+									<p className="font-semibold">
+										{formatCurrency(editingLineItemsEntry.amount)}
+									</p>
+								</div>
+								<div className="space-y-0.5 text-right">
+									<p className="text-muted-foreground">Line items total</p>
+									<p
+										className={cn(
+											"font-semibold",
+											Math.abs(lineItemsTotal - editingLineItemsEntry.amount) <
+												0.01
+												? "text-emerald-500"
+												: "text-rose-500",
+										)}
+									>
+										{formatCurrency(lineItemsTotal)}
+									</p>
+									<p className="text-[10px] text-muted-foreground">
+										{Math.abs(lineItemsTotal - editingLineItemsEntry.amount) <
+										0.01
+											? "Balanced"
+											: "Does not add up"}
+									</p>
+								</div>
+							</div>
+
+							{lineItemsLoading ? (
+								<div className="py-8 text-center text-muted-foreground text-sm">
+									Loading line items…
+								</div>
+							) : (
+								<div className="space-y-2">
+									<div className="grid grid-cols-[2fr_2fr_1fr_auto] gap-2 font-medium text-muted-foreground text-xs">
+										<span>Description</span>
+										<span>Category</span>
+										<span className="text-right">Amount</span>
+										<span />
+									</div>
+									<div className="space-y-2">
+										{lineItemsDraft.map((item, index) => (
+											<div
+												key={item.id ?? index}
+												className="grid grid-cols-[2fr_2fr_1fr_auto] items-center gap-2"
+											>
+												<Input
+													placeholder="Description"
+													value={item.description}
+													onChange={(e) => {
+														const next = [...lineItemsDraft];
+														next[index] = {
+															...next[index],
+															description: e.target.value,
+														};
+														setLineItemsDraft(next);
+													}}
+												/>
+												<Input
+													placeholder="Category"
+													value={item.category}
+													onChange={(e) => {
+														const next = [...lineItemsDraft];
+														next[index] = {
+															...next[index],
+															category: e.target.value,
+														};
+														setLineItemsDraft(next);
+													}}
+												/>
+												<Input
+													className="text-right"
+													type="number"
+													step="0.01"
+													placeholder="0.00"
+													value={item.amount}
+													onChange={(e) => {
+														const next = [...lineItemsDraft];
+														next[index] = {
+															...next[index],
+															amount: e.target.value,
+														};
+														setLineItemsDraft(next);
+													}}
+												/>
+												<div className="flex items-center justify-end gap-1">
+													<Button
+														type="button"
+														variant="ghost"
+														size="icon"
+														className="h-7 w-7"
+														onClick={() => {
+															setLineItemsDraft((prev) =>
+																prev.length <= 1
+																	? prev
+																	: prev.filter((_, i) => i !== index),
+															);
+														}}
+														disabled={lineItemsDraft.length <= 1}
+													>
+														×
+													</Button>
+												</div>
+											</div>
+										))}
+									</div>
+									<div className="pt-2">
+										<Button
+											type="button"
+											variant="outline"
+											size="sm"
+											onClick={() =>
+												setLineItemsDraft((prev) => [
+													...prev,
+													{ description: "", category: "", amount: "" },
+												])
+											}
+										>
+											Add item
+										</Button>
+									</div>
+								</div>
+							)}
+						</div>
+					) : null}
+					<DialogFooter className="mt-6">
+						<DialogClose asChild>
+							<Button type="button" variant="outline">
+								Cancel
+							</Button>
+						</DialogClose>
+						<Button
+							type="button"
+							disabled={
+								!editingLineItemsEntry ||
+								lineItemsDraft.some(
+									(item) =>
+										!item.description.trim() ||
+										!item.category.trim() ||
+										item.amount === "",
+								) ||
+								Math.abs(
+									lineItemsTotal - (editingLineItemsEntry?.amount ?? 0),
+								) >= 0.01 ||
+								setLineItemsMutation.isPending
+							}
+							onClick={() => {
+								if (!editingLineItemsEntry) return;
+								setLineItemsMutation.mutate({
+									cashflowEntryId: editingLineItemsEntry.id,
+									items: lineItemsDraft.map((item) => ({
+										id: item.id,
+										description: item.description,
+										category: item.category,
+										amount: Number(item.amount),
+										notes: item.notes || undefined,
+									})),
+								});
+							}}
+						>
+							{setLineItemsMutation.isPending ? "Saving..." : "Save breakdown"}
+						</Button>
+					</DialogFooter>
+				</DialogPopup>
+			</Dialog>
+		</div>
+	);
 }
