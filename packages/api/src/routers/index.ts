@@ -1427,28 +1427,13 @@ export const appRouter = router({
 
 	// Budget Planning
 	budgetProjects: router({
-		// List all projects for user (paginated)
-		list: whitelistedProcedure
-			.input(
-				z
-					.object({
-						limit: z.number().min(1).max(50).optional().default(20),
-						cursor: z.string().optional(),
-					})
-					.optional(),
-			)
-			.query(async ({ ctx, input }) => {
-				const limit = input?.limit ?? 20;
-				const cursor = input?.cursor;
+		// List all projects for user (no pagination - fetch all)
+		list: whitelistedProcedure.query(async ({ ctx }) => {
 				const projects = await ctx.prisma.budgetProject.findMany({
-					take: limit + 1,
-					...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
 					where: {
 						isActive: true,
 					},
 					orderBy: [
-						{ status: "asc" }, // planned first, then completed
-						{ eventDate: "asc" },
 						{ createdAt: "desc" },
 						{ id: "desc" },
 					],
@@ -1502,11 +1487,8 @@ export const appRouter = router({
 						},
 					},
 				});
-				const nextCursor =
-					projects.length > limit ? projects[limit - 1].id : null;
-				const items = projects.slice(0, limit);
 				return {
-					items: items.map((project) => {
+					items: projects.map((project) => {
 						const totalBudget = project.items
 							.filter((i) => i.type === "expense")
 							.reduce((sum, item) => sum + Number(item.estimatedAmount), 0);
@@ -1625,7 +1607,6 @@ export const appRouter = router({
 							})),
 						};
 					}),
-					nextCursor,
 				};
 			}),
 
