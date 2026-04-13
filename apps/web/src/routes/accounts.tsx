@@ -1,10 +1,18 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { ArrowDown, ArrowUp, Calendar, Filter, Loader2 } from "lucide-react";
+import type { inferRouterOutputs } from "@trpc/server";
+import {
+	ArrowDown,
+	ArrowUp,
+	Calendar,
+	FileDown,
+	Filter,
+	Loader2,
+} from "lucide-react";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { NotWhitelistedView } from "@/components/not-whitelisted-view";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
 	Card,
 	CardContent,
@@ -33,8 +41,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import type { AppRouter } from "@cisco-finance/api/routers/index";
 import { authClient } from "@/lib/auth-client";
+import { downloadAccountLedgerPdf } from "@/lib/pdf-report";
 import { queryClient, trpc } from "@/utils/trpc";
+
+type AccountLedgerExportRow =
+	inferRouterOutputs<AppRouter>["accountEntries"]["exportLedger"]["items"][number];
 
 export const Route = createFileRoute("/accounts")({
 	component: AccountsRoute,
@@ -60,6 +73,7 @@ const formatCurrency = (value: number) =>
 	}).format(value);
 
 const PAGE_SIZE = 20;
+const LEDGER_PDF_COOLDOWN_KEY = "cisco-finance-account-ledger-pdf-cooldown-end";
 
 function AccountsRoute() {
 	const roleQuery = useQuery(trpc.team.getMyRole.queryOptions());
@@ -207,6 +221,72 @@ function AccountsRoute() {
 			},
 		}),
 	);
+
+	const [ledgerPdfDialogOpen, setLedgerPdfDialogOpen] = useState(false);
+	const [ledgerPdfAccount, setLedgerPdfAccount] = useState<
+		(typeof ACCOUNT_OPTIONS)[number]
+	>(ACCOUNT_OPTIONS[0]);
+	const [ledgerPdfDateFrom, setLedgerPdfDateFrom] = useState("");
+	const [ledgerPdfDateTo, setLedgerPdfDateTo] = useState("");
+	const [ledgerPdfStatus, setLedgerPdfStatus] = useState<
+		"all" | "verified" | "unverified" | "archived"
+	>("all");
+	const [ledgerPdfSearch, setLedgerPdfSearch] = useState("");
+	const [ledgerPdfGenerating, setLedgerPdfGenerating] = useState(false);
+	const [ledgerPdfCooldownEnd, setLedgerPdfCooldownEnd] = useState<
+		number | null
+	>(() => {
+		if (typeof sessionStorage === "undefined") return null;
+		const stored = sessionStorage.getItem(LEDGER_PDF_COOLDOWN_KEY);
+		const end = stored ? Number(stored) : Number.NaN;
+		return Number.isFinite(end) && end > Date.now() ? end : null;
+	});
+	const [ledgerNow, setLedgerNow] = useState(() => Date.now());
+	useEffect(() => {
+		if (ledgerPdfCooldownEnd == null) return;
+		const id = setInterval(() => setLedgerNow(Date.now()), 1000);
+		return () => clearInterval(id);
+	}, [ledgerPdfCooldownEnd]);
+	useEffect(() => {
+		if (ledgerPdfCooldownEnd != null) {
+			sessionStorage.setItem(
+				LEDGER_PDF_COOLDOWN_KEY,
+				String(ledgerPdfCooldownEnd),
+			);
+		} else {
+			sessionStorage.removeItem(LEDGER_PDF_COOLDOWN_KEY);
+		}
+	}, [ledgerPdfCooldownEnd]);
+	useEffect(() => {
+		if (ledgerPdfCooldownEnd != null && ledgerNow >= ledgerPdfCooldownEnd)
+			setLedgerPdfCooldownEnd(null);
+	}, [ledgerPdfCooldownEnd, ledgerNow]);
+	const ledgerPdfCooldownRemaining =
+		ledgerPdfCooldownEnd != null && ledgerPdfCooldownEnd > ledgerNow
+			? ledgerPdfCooldownEnd - ledgerNow
+			: 0;
+	const ledgerPdfCooldownMinutes = Math.floor(
+		ledgerPdfCooldownRemaining / 60000,
+	);
+	const ledgerPdfCooldownSeconds = Math.floor(
+		(ledgerPdfCooldownRemaining % 60000) / 1000,
+	);
+	const ledgerPdfCooldownLabel =
+		ledgerPdfCooldownRemaining > 0
+			? `${ledgerPdfCooldownMinutes}:${ledgerPdfCooldownSeconds.toString().padStart(2, "0")} cooldown`
+			: null;
+	const isLedgerPdfOnCooldown = ledgerPdfCooldownRemaining > 0;
+
+	function openLedgerPdfDialog() {
+		setLedgerPdfAccount(
+			accountFilter !== "all" ? accountFilter : ACCOUNT_OPTIONS[0],
+		);
+		setLedgerPdfStatus(statusFilter);
+		setLedgerPdfSearch(searchQuery);
+		setLedgerPdfDateFrom("");
+		setLedgerPdfDateTo("");
+		setLedgerPdfDialogOpen(true);
+	}
 
 	// Use aggregate summary from server (not limited by pagination)
 	const summary = summaryQuery.data;
@@ -405,6 +485,15 @@ function AccountsRoute() {
 							</CardDescription>
 						</div>
 						<div className="flex flex-wrap items-center gap-2">
+							<Button
+								variant="outline"
+								size="sm"
+								className="gap-2"
+								onClick={openLedgerPdfDialog}
+							>
+								<FileDown className="size-4" />
+								Download account ledger
+							</Button>
 							<Input
 								placeholder="Search by amount or description"
 								className="w-full sm:w-72"
@@ -881,6 +970,188 @@ function AccountsRoute() {
 					</div>
 				</CardContent>
 			</Card>
+
+			<Dialog open={ledgerPdfDialogOpen} onOpenChange={setLedgerPdfDialogOpen}>
+				<DialogPopup className="max-w-sm">
+					<DialogHeader>
+						<DialogTitle>Download account ledger</DialogTitle>
+						<DialogDescription>
+							Generate a PDF of inflows and outflows for one treasury account.
+							Optional filters match the main ledger table.
+						</DialogDescription>
+					</DialogHeader>
+					<div className="mt-4 space-y-4">
+						<div className="space-y-2">
+							<Label className="text-muted-foreground">Account</Label>
+							<select
+								className="flex h-9 w-full border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+								value={ledgerPdfAccount}
+								onChange={(e) =>
+									setLedgerPdfAccount(
+										e.target.value as (typeof ACCOUNT_OPTIONS)[number],
+									)
+								}
+							>
+								{ACCOUNT_OPTIONS.map((opt) => (
+									<option key={opt} value={opt}>
+										{opt}
+									</option>
+								))}
+							</select>
+						</div>
+						<div className="space-y-2">
+							<Label className="text-muted-foreground">Status</Label>
+							<select
+								className="flex h-9 w-full border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+								value={ledgerPdfStatus}
+								onChange={(e) =>
+									setLedgerPdfStatus(
+										e.target.value as
+											| "all"
+											| "verified"
+											| "unverified"
+											| "archived",
+									)
+								}
+							>
+								<option value="all">All statuses</option>
+								<option value="verified">Verified</option>
+								<option value="unverified">Unverified</option>
+								<option value="archived">Archived</option>
+							</select>
+						</div>
+						<div className="space-y-2">
+							<Label className="text-muted-foreground">Search</Label>
+							<Input
+								placeholder="Description or amount (optional)"
+								value={ledgerPdfSearch}
+								onChange={(e) => setLedgerPdfSearch(e.target.value)}
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label className="text-muted-foreground">From</Label>
+							<Input
+								type="date"
+								value={ledgerPdfDateFrom}
+								onChange={(e) => setLedgerPdfDateFrom(e.target.value)}
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label className="text-muted-foreground">To</Label>
+							<Input
+								type="date"
+								value={ledgerPdfDateTo}
+								onChange={(e) => setLedgerPdfDateTo(e.target.value)}
+							/>
+						</div>
+						<p className="text-muted-foreground text-xs">
+							Leave both dates empty for all dates. Opening and closing balances
+							appear only when both From and To are set.
+						</p>
+						{!ledgerPdfDateFrom.trim() && !ledgerPdfDateTo.trim() && (
+							<div className="rounded-lg border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-amber-800 text-xs dark:text-amber-200">
+								<p className="font-medium">Heavy use notice</p>
+								<p className="mt-1">
+									Exporting all dates uses more server and browser resources. A{" "}
+									<strong>5-minute cooldown</strong> applies before another
+									ledger PDF.
+								</p>
+							</div>
+						)}
+						<p className="text-muted-foreground text-xs">
+							Exports with over 100 rows trigger a 2-minute cooldown.
+						</p>
+					</div>
+					<DialogFooter className="mt-6">
+						<DialogClose asChild>
+							<button
+								type="button"
+								className={buttonVariants({ variant: "outline" })}
+							>
+								Cancel
+							</button>
+						</DialogClose>
+						<Button
+							disabled={ledgerPdfGenerating || isLedgerPdfOnCooldown}
+							onClick={async () => {
+								const pdfFrom = ledgerPdfDateFrom.trim();
+								const pdfTo = ledgerPdfDateTo.trim();
+								if ((pdfFrom && !pdfTo) || (!pdfFrom && pdfTo)) {
+									toast.error(
+										"Enter both From and To dates, or leave both empty for all dates.",
+									);
+									return;
+								}
+								const noDateRange = !pdfFrom && !pdfTo;
+								setLedgerPdfGenerating(true);
+								try {
+									const data = await queryClient.fetchQuery(
+										trpc.accountEntries.exportLedger.queryOptions({
+											account: ledgerPdfAccount,
+											search: ledgerPdfSearch.trim() || undefined,
+											statusFilter: ledgerPdfStatus,
+											dateFrom: pdfFrom && pdfTo ? pdfFrom : undefined,
+											dateTo: pdfFrom && pdfTo ? pdfTo : undefined,
+											dateSort: "asc",
+										}),
+									);
+									const entries = data.items.map((row: AccountLedgerExportRow) => ({
+										date: new Date(row.date),
+										description: row.description,
+										amount: row.amount,
+										statusLabel: !row.isActive
+											? "ARCHIVED"
+											: row.isVerified
+												? "VERIFIED"
+												: "UNVERIFIED",
+										linkedCashflowDescription:
+											row.cashflowEntry?.description ?? null,
+									}));
+									downloadAccountLedgerPdf(
+										{
+											account: ledgerPdfAccount,
+											entries,
+											startingBalance: data.startingBalance,
+											endingBalance: data.endingBalance,
+										},
+										{
+											dateFrom: pdfFrom && pdfTo ? pdfFrom : undefined,
+											dateTo: pdfFrom && pdfTo ? pdfTo : undefined,
+										},
+									);
+									toast.success("Ledger PDF downloaded.");
+									setLedgerPdfDialogOpen(false);
+									const rowCount = data.items.length;
+									let cooldownMs = 0;
+									if (noDateRange) cooldownMs = 5 * 60 * 1000;
+									else if (rowCount > 100) cooldownMs = 2 * 60 * 1000;
+									if (cooldownMs > 0)
+										setLedgerPdfCooldownEnd(Date.now() + cooldownMs);
+								} catch (err) {
+									const message =
+										err instanceof Error
+											? err.message
+											: "Failed to generate PDF.";
+									toast.error(message);
+								} finally {
+									setLedgerPdfGenerating(false);
+								}
+							}}
+						>
+							{ledgerPdfGenerating ? (
+								<>
+									<Loader2 className="size-4 animate-spin" />
+									Generating…
+								</>
+							) : isLedgerPdfOnCooldown ? (
+								`Download PDF (${ledgerPdfCooldownLabel})`
+							) : (
+								"Download PDF"
+							)}
+						</Button>
+					</DialogFooter>
+				</DialogPopup>
+			</Dialog>
 		</div>
 	);
 }

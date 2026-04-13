@@ -23,6 +23,63 @@ const MAX_RECEIPT_IMAGE_BASE64_LENGTH = Math.ceil(1024 * 1024 * (4 / 3));
 
 const ACCOUNT_OPTIONS = ["GCash", "GoTyme", "Cash", "BPI"] as const;
 
+/** Max rows returned by accountEntries.exportLedger (hard error if exceeded). */
+const ACCOUNT_LEDGER_EXPORT_MAX = 3000;
+
+type AccountEntryListFilterInput = {
+	search?: string;
+	account: (typeof ACCOUNT_OPTIONS)[number] | "all";
+	statusFilter: "all" | "verified" | "unverified" | "archived";
+	dateFrom?: string;
+	dateTo?: string;
+	dateSingle?: string;
+};
+
+function buildAccountEntryWhereParts(
+	input: AccountEntryListFilterInput,
+): object[] {
+	const whereParts: object[] = [];
+
+	if (input.search?.trim()) {
+		const q = input.search.trim();
+		whereParts.push({
+			OR: [
+				{ description: { contains: q, mode: "insensitive" as const } },
+				...(q && !Number.isNaN(Number(q)) ? [{ amount: Number(q) }] : []),
+			],
+		});
+	}
+
+	if (input.account !== "all") {
+		whereParts.push({ account: input.account });
+	}
+
+	if (input.statusFilter !== "all") {
+		if (input.statusFilter === "verified") {
+			whereParts.push({ cashflowEntry: { isNot: null } });
+		} else if (input.statusFilter === "unverified") {
+			whereParts.push({ cashflowEntry: null, isActive: true });
+		} else if (input.statusFilter === "archived") {
+			whereParts.push({ isActive: false });
+		}
+	}
+
+	if (input.dateSingle) {
+		const start = new Date(input.dateSingle + "T00:00:00.000Z");
+		const end = new Date(start.getTime() + 86400000);
+		whereParts.push({ date: { gte: start, lt: end } });
+	} else if (input.dateFrom && input.dateTo) {
+		whereParts.push({
+			date: {
+				gte: new Date(input.dateFrom + "T00:00:00.000Z"),
+				lte: new Date(input.dateTo + "T23:59:59.999Z"),
+			},
+		});
+	}
+
+	return whereParts;
+}
+
 // Helper to get the VP Finance's first name for email sender display
 async function getSenderName(prisma: Context["prisma"]) {
 	const vpAuth = await prisma.authorizedUser.findFirst({
@@ -1124,45 +1181,14 @@ export const appRouter = router({
 				}),
 			)
 			.query(async ({ ctx, input }) => {
-				const whereParts: Array<object> = [];
-
-				if (input.search?.trim()) {
-					const q = input.search.trim();
-					whereParts.push({
-						OR: [
-							{ description: { contains: q, mode: "insensitive" as const } },
-							...(q && !Number.isNaN(Number(q)) ? [{ amount: Number(q) }] : []),
-						],
-					});
-				}
-
-				if (input.accountFilter !== "all") {
-					whereParts.push({ account: input.accountFilter });
-				}
-
-				if (input.statusFilter !== "all") {
-					if (input.statusFilter === "verified") {
-						whereParts.push({ cashflowEntry: { isNot: null } });
-					} else if (input.statusFilter === "unverified") {
-						whereParts.push({ cashflowEntry: null, isActive: true });
-					} else if (input.statusFilter === "archived") {
-						whereParts.push({ isActive: false });
-					}
-				}
-
-				if (input.dateSingle) {
-					const start = new Date(input.dateSingle + "T00:00:00.000Z");
-					const end = new Date(start.getTime() + 86400000);
-					whereParts.push({ date: { gte: start, lt: end } });
-				} else if (input.dateFrom && input.dateTo) {
-					whereParts.push({
-						date: {
-							gte: new Date(input.dateFrom + "T00:00:00.000Z"),
-							lte: new Date(input.dateTo + "T23:59:59.999Z"),
-						},
-					});
-				}
-
+				const whereParts = buildAccountEntryWhereParts({
+					search: input.search,
+					account: input.accountFilter,
+					statusFilter: input.statusFilter,
+					dateFrom: input.dateFrom,
+					dateTo: input.dateTo,
+					dateSingle: input.dateSingle,
+				});
 				const where = whereParts.length > 0 ? { AND: whereParts } : undefined;
 				const orderBy = [
 					{ date: input.dateSort } as const,
@@ -1199,6 +1225,94 @@ export const appRouter = router({
 						cashflowEntry: entry.cashflowEntry,
 					})),
 					hasMore,
+				};
+			}),
+		/** Full ledger for PDF export (one account). Same filters as listPage; capped at ACCOUNT_LEDGER_EXPORT_MAX rows. */
+		exportLedger: whitelistedProcedure
+			.input(
+				z.object({
+					account: z.enum(ACCOUNT_OPTIONS),
+					search: z.string().optional(),
+					statusFilter: z
+						.enum(["all", "verified", "unverified", "archived"])
+						.optional()
+						.default("all"),
+					dateFrom: z.string().optional(),
+					dateTo: z.string().optional(),
+					dateSingle: z.string().optional(),
+					dateSort: z.enum(["desc", "asc"]).default("asc"),
+				}),
+			)
+			.query(async ({ ctx, input }) => {
+				const whereParts = buildAccountEntryWhereParts({
+					search: input.search,
+					account: input.account,
+					statusFilter: input.statusFilter,
+					dateFrom: input.dateFrom,
+					dateTo: input.dateTo,
+					dateSingle: input.dateSingle,
+				});
+				const where = whereParts.length > 0 ? { AND: whereParts } : undefined;
+				const orderBy = [
+					{ date: input.dateSort } as const,
+					{ id: input.dateSort } as const,
+				];
+
+				const entries = await ctx.prisma.accountEntry.findMany({
+					where,
+					orderBy,
+					take: ACCOUNT_LEDGER_EXPORT_MAX + 1,
+					include: {
+						cashflowEntry: {
+							select: { id: true, description: true },
+						},
+					},
+				});
+
+				if (entries.length > ACCOUNT_LEDGER_EXPORT_MAX) {
+					throw new TRPCError({
+						code: "BAD_REQUEST",
+						message: `Too many ledger rows (more than ${ACCOUNT_LEDGER_EXPORT_MAX}). Narrow your filters or date range.`,
+					});
+				}
+
+				// Opening/closing only when a full date range is used (not date-single mode).
+				let startingBalance: number | null = null;
+				let endingBalance: number | null = null;
+				if (input.dateFrom && input.dateTo && !input.dateSingle) {
+					const startDate = new Date(input.dateFrom + "T00:00:00.000Z");
+					const startAgg = await ctx.prisma.accountEntry.aggregate({
+						where: {
+							account: input.account,
+							isActive: true,
+							date: { lt: startDate },
+						},
+						_sum: { amount: true },
+					});
+					startingBalance = Number(startAgg._sum.amount ?? 0);
+					let periodNet = 0;
+					for (const e of entries) {
+						periodNet += Number(e.amount);
+					}
+					endingBalance = startingBalance + periodNet;
+				}
+
+				return {
+					items: entries.map((entry) => ({
+						id: entry.id,
+						date: entry.date,
+						description: entry.description,
+						account: entry.account,
+						amount: Number(entry.amount),
+						currency: entry.currency,
+						notes: entry.notes,
+						isActive: entry.isActive,
+						archivedAt: entry.archivedAt,
+						isVerified: !!entry.cashflowEntry,
+						cashflowEntry: entry.cashflowEntry,
+					})),
+					startingBalance,
+					endingBalance,
 				};
 			}),
 		listUnverified: whitelistedProcedure.query(async ({ ctx }) => {
