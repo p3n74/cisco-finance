@@ -65,6 +65,29 @@ export const Route = createFileRoute("/dashboard")({
 
 type StatusFilterValue = "all" | "no_receipt" | "verified" | "manual";
 
+type LinkedAccountEntryPreview = {
+	id: string;
+	account: string;
+	description: string;
+};
+
+type CashflowEntryWithLinks = {
+	accountEntry?: LinkedAccountEntryPreview | null;
+	linkedAccountEntries?: LinkedAccountEntryPreview[];
+};
+
+function getLinkedAccountEntries(
+	entry: CashflowEntryWithLinks,
+): LinkedAccountEntryPreview[] {
+	if (entry.linkedAccountEntries && entry.linkedAccountEntries.length > 0) {
+		return entry.linkedAccountEntries;
+	}
+	return entry.accountEntry ? [entry.accountEntry] : [];
+}
+
+const LINKED_ENTRIES_TABLE_PREVIEW = 2;
+const LINKED_ENTRIES_DETAIL_MAX_HEIGHT = "max-h-48";
+
 function RouteComponent() {
 	const { session } = Route.useRouteContext();
 	const navigate = useNavigate();
@@ -161,8 +184,10 @@ function RouteComponent() {
 	const [formState, setFormState] = useState({
 		description: "",
 		category: "",
-		accountEntryId: "",
 	});
+	const [selectedAccountEntryIds, setSelectedAccountEntryIds] = useState<string[]>(
+		[],
+	);
 
 	// Attach receipt state
 	const [attachingToEntryId, setAttachingToEntryId] = useState<string | null>(
@@ -246,8 +271,8 @@ function RouteComponent() {
 				setFormState({
 					description: "",
 					category: "",
-					accountEntryId: "",
 				});
+				setSelectedAccountEntryIds([]);
 				setIsDialogOpen(false);
 			},
 		}),
@@ -353,9 +378,47 @@ function RouteComponent() {
 		reader.readAsDataURL(file);
 	};
 
+	const toggleAccountEntrySelection = (entryId: string) => {
+		const entry = unverifiedEntries.find((item) => item.id === entryId);
+		if (!entry) return;
+		setSelectedAccountEntryIds((prev) => {
+			if (prev.includes(entryId)) {
+				return prev.filter((id) => id !== entryId);
+			}
+			if (prev.length === 0) {
+				return [entryId];
+			}
+			const selectedEntries = unverifiedEntries.filter((item) =>
+				prev.includes(item.id),
+			);
+			const expectedAccount = selectedEntries[0]?.account;
+			if (expectedAccount && entry.account !== expectedAccount) {
+				toast.error("Grouped verification requires the same account.");
+				return prev;
+			}
+			const expectedSign = selectedEntries[0]?.amount >= 0 ? 1 : -1;
+			if ((entry.amount >= 0 ? 1 : -1) !== expectedSign) {
+				toast.error("Grouped verification requires the same transaction sign.");
+				return prev;
+			}
+			return [...prev, entryId];
+		});
+	};
+
 	const unverifiedEntries = unverifiedQuery.data ?? [];
-	const selectedAccountEntry = unverifiedEntries.find(
-		(e) => e.id === formState.accountEntryId,
+	const selectedAccountEntries = unverifiedEntries.filter((entry) =>
+		selectedAccountEntryIds.includes(entry.id),
+	);
+	const selectedAccount = selectedAccountEntries[0]?.account ?? null;
+	const selectedSign =
+		selectedAccountEntries.length > 0
+			? selectedAccountEntries[0].amount >= 0
+				? "inflow"
+				: "outflow"
+			: null;
+	const selectedAmountTotal = selectedAccountEntries.reduce(
+		(sum, entry) => sum + entry.amount,
+		0,
 	);
 
 	const cashflowSummary = cashflowSummaryQuery.data;
@@ -401,6 +464,9 @@ function RouteComponent() {
 	);
 	const [viewingEntry, setViewingEntry] = useState<TableEntry | null>(null);
 	const [detailEntry, setDetailEntry] = useState<TableEntry | null>(null);
+	const detailLinkedAccountEntries = detailEntry
+		? getLinkedAccountEntries(detailEntry)
+		: [];
 	useEffect(() => {
 		if (!attachingToEntryId) setAttachingToEntry(null);
 	}, [attachingToEntryId]);
@@ -599,7 +665,13 @@ function RouteComponent() {
 						)}
 					</Button>
 					{canEditDashboard && (
-						<Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+						<Dialog
+							open={isDialogOpen}
+							onOpenChange={(open) => {
+								setIsDialogOpen(open);
+								if (!open) setSelectedAccountEntryIds([]);
+							}}
+						>
 							<Button variant="default" onClick={() => setIsDialogOpen(true)}>
 								Verify Transaction
 							</Button>
@@ -607,7 +679,8 @@ function RouteComponent() {
 								<DialogHeader>
 									<DialogTitle>Verify Account Transaction</DialogTitle>
 									<DialogDescription>
-										Select a transaction and give it an official designation.
+										Select one or more transactions (same account and same sign)
+										and give them an official designation.
 									</DialogDescription>
 								</DialogHeader>
 								<form
@@ -615,21 +688,22 @@ function RouteComponent() {
 									className="mt-4 space-y-4"
 									onSubmit={(event) => {
 										event.preventDefault();
-										if (!selectedAccountEntry) return;
-										if (
-											selectedAccountEntry &&
-											(!formState.description.trim() ||
-												!formState.category.trim())
-										) {
+										if (selectedAccountEntries.length === 0) return;
+										if (!formState.description.trim() || !formState.category.trim()) {
 											toast.error("Please fill out all required fields.");
 											return;
 										}
+										const latestSelectedEntry = [...selectedAccountEntries].sort(
+											(a, b) =>
+												new Date(b.date).getTime() - new Date(a.date).getTime(),
+										)[0];
+										if (!latestSelectedEntry) return;
 										createCashflowEntry.mutate({
-											date: new Date(selectedAccountEntry.date).toISOString(),
+											date: new Date(latestSelectedEntry.date).toISOString(),
 											description: formState.description,
 											category: formState.category,
-											amount: String(selectedAccountEntry.amount),
-											accountEntryId: formState.accountEntryId,
+											amount: String(selectedAmountTotal),
+											accountEntryIds: selectedAccountEntryIds,
 										});
 									}}
 								>
@@ -669,15 +743,10 @@ function RouteComponent() {
 															unverifiedEntries.map((e) => (
 																<tr
 																	key={e.id}
-																	onClick={() =>
-																		setFormState({
-																			...formState,
-																			accountEntryId: e.id,
-																		})
-																	}
+																	onClick={() => toggleAccountEntrySelection(e.id)}
 																	className={cn(
 																		"cursor-pointer transition-colors hover:bg-primary/5",
-																		formState.accountEntryId === e.id
+																		selectedAccountEntryIds.includes(e.id)
 																			? "bg-primary/10 hover:bg-primary/15"
 																			: "",
 																	)}
@@ -710,19 +779,17 @@ function RouteComponent() {
 										</div>
 									</div>
 
-									{selectedAccountEntry && (
+									{selectedAccountEntries.length > 0 && (
 										<>
 											<div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
 												<p className="font-semibold text-emerald-600 text-xs uppercase tracking-wider dark:text-emerald-400">
-													Selected Transaction
+													Selected Transactions
 												</p>
 												<div className="mt-3 grid gap-2 text-sm">
 													<div className="flex justify-between">
-														<span className="text-muted-foreground">Date</span>
+														<span className="text-muted-foreground">Count</span>
 														<span className="font-medium">
-															{new Date(
-																selectedAccountEntry.date,
-															).toLocaleDateString()}
+															{selectedAccountEntries.length}
 														</span>
 													</div>
 													<div className="flex justify-between">
@@ -730,15 +797,15 @@ function RouteComponent() {
 															Account
 														</span>
 														<span className="font-medium">
-															{selectedAccountEntry.account}
+															{selectedAccount}
 														</span>
 													</div>
 													<div className="flex justify-between">
 														<span className="text-muted-foreground">
-															Description
+															Type
 														</span>
 														<span className="font-medium">
-															{selectedAccountEntry.description}
+															{selectedSign === "inflow" ? "Inflow" : "Outflow"}
 														</span>
 													</div>
 													<div className="flex justify-between">
@@ -746,9 +813,9 @@ function RouteComponent() {
 															Amount
 														</span>
 														<span
-															className={`font-semibold ${selectedAccountEntry.amount >= 0 ? "text-emerald-500" : "text-rose-500"}`}
+															className={`font-semibold ${selectedAmountTotal >= 0 ? "text-emerald-500" : "text-rose-500"}`}
 														>
-															{formatCurrency(selectedAccountEntry.amount)}
+															{formatCurrency(selectedAmountTotal)}
 														</span>
 													</div>
 												</div>
@@ -798,12 +865,13 @@ function RouteComponent() {
 										<Button
 											type="submit"
 											disabled={
-												createCashflowEntry.isPending || !selectedAccountEntry
+												createCashflowEntry.isPending ||
+												selectedAccountEntries.length === 0
 											}
 										>
 											{createCashflowEntry.isPending
 												? "Verifying..."
-												: "Verify Transaction"}
+												: "Verify Selected"}
 										</Button>
 									</DialogFooter>
 								</form>
@@ -1292,7 +1360,9 @@ function RouteComponent() {
 									</tr>
 								) : (
 									tableItems.map((entry) => {
-										const hasAccountEntry = !!entry.accountEntryId;
+										const linkedAccountEntries =
+											getLinkedAccountEntries(entry);
+										const hasAccountEntry = linkedAccountEntries.length > 0;
 										const noReceipt = entry.receiptsCount === 0;
 										return (
 											<tr
@@ -1320,10 +1390,35 @@ function RouteComponent() {
 													<div className="text-muted-foreground text-xs">
 														#{entry.id.slice(0, 8)}
 													</div>
-													{hasAccountEntry && entry.accountEntry && (
+													{hasAccountEntry && (
 														<div className="mt-1 text-emerald-600 text-xs dark:text-emerald-400">
-															From: {entry.accountEntry.account} —{" "}
-															{entry.accountEntry.description}
+															<div className="space-y-0.5">
+																{linkedAccountEntries
+																	.slice(0, LINKED_ENTRIES_TABLE_PREVIEW)
+																	.map((linkedEntry) => (
+																		<div
+																			key={linkedEntry.id}
+																			className="truncate"
+																		>
+																			From: {linkedEntry.account} —{" "}
+																			{linkedEntry.description}
+																		</div>
+																	))}
+															</div>
+															{linkedAccountEntries.length >
+																LINKED_ENTRIES_TABLE_PREVIEW && (
+																<div className="text-muted-foreground">
+																	+
+																	{linkedAccountEntries.length -
+																		LINKED_ENTRIES_TABLE_PREVIEW}{" "}
+																	more linked transaction
+																	{linkedAccountEntries.length -
+																		LINKED_ENTRIES_TABLE_PREVIEW ===
+																	1
+																		? ""
+																		: "s"}
+																</div>
+															)}
 														</div>
 													)}
 												</td>
@@ -1333,7 +1428,7 @@ function RouteComponent() {
 													</span>
 												</td>
 												<td className="px-5 py-4 text-muted-foreground">
-													{entry.accountEntry?.account ?? "—"}
+													{linkedAccountEntries[0]?.account ?? "—"}
 												</td>
 												<td
 													className={`px-5 py-4 text-right font-semibold ${
@@ -1501,7 +1596,7 @@ function RouteComponent() {
 										<div className="flex justify-between gap-4">
 											<dt className="text-muted-foreground">Account</dt>
 											<dd className="font-medium">
-												{detailEntry.accountEntry?.account ?? "—"}
+												{detailLinkedAccountEntries[0]?.account ?? "—"}
 											</dd>
 										</div>
 										<div className="flex justify-between gap-4">
@@ -1511,7 +1606,7 @@ function RouteComponent() {
 													<span className="inline-flex items-center rounded-full bg-red-500/10 px-2.5 py-1 font-medium text-red-600 text-xs dark:text-red-400">
 														No receipt
 													</span>
-												) : detailEntry.accountEntryId ? (
+												) : detailLinkedAccountEntries.length > 0 ? (
 													<span className="inline-flex items-center rounded-full bg-emerald-500/10 px-2.5 py-1 font-medium text-emerald-600 text-xs dark:text-emerald-400">
 														Verified
 													</span>
@@ -1531,19 +1626,33 @@ function RouteComponent() {
 									</dl>
 								</div>
 
-								{/* Source (linked account entry) */}
-								{detailEntry.accountEntry && (
+								{/* Source (linked account entries) */}
+								{detailLinkedAccountEntries.length > 0 && (
 									<div className="rounded-xl border border-border/60 bg-emerald-500/5 p-4">
 										<p className="mb-3 font-semibold text-emerald-700 text-xs uppercase tracking-wider dark:text-emerald-400">
 											Linked account transaction
+											{detailLinkedAccountEntries.length === 1 ? "" : "s"} (
+											{detailLinkedAccountEntries.length})
 										</p>
-										<p className="text-sm">
-											<span className="font-medium">
-												{detailEntry.accountEntry.account}
-											</span>
-											<span className="text-muted-foreground"> — </span>
-											{detailEntry.accountEntry.description}
-										</p>
+										<div
+											className={cn(
+												"space-y-2 overflow-y-auto pr-1",
+												LINKED_ENTRIES_DETAIL_MAX_HEIGHT,
+											)}
+										>
+											{detailLinkedAccountEntries.map((linkedEntry) => (
+												<div
+													key={linkedEntry.id}
+													className="rounded-lg border border-emerald-500/20 bg-background/60 px-3 py-2 text-sm"
+												>
+													<span className="font-medium">
+														{linkedEntry.account}
+													</span>
+													<span className="text-muted-foreground"> — </span>
+													{linkedEntry.description}
+												</div>
+											))}
+										</div>
 									</div>
 								)}
 

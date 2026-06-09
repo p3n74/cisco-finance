@@ -9,7 +9,10 @@
       "default": "./src/*.ts"
     }
   },
-  "scripts": {},
+  "scripts": {
+    "test:e2e": "bun test src/routers/grouped-verification.e2e.test.ts",
+    "test": "bun test src/routers/grouped-verification.e2e.test.ts"
+  },
   "dependencies": {
     "@cisco-finance/auth": "workspace:*",
     "@cisco-finance/db": "workspace:*",

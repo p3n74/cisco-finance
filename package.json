@@ -35,6 +35,7 @@
     "db:generate": "turbo -F @cisco-finance/db db:generate",
     "db:migrate": "turbo -F @cisco-finance/db db:migrate",
     "check": "biome check --write .",
+    "test:e2e": "turbo -F @cisco-finance/api test:e2e",
     "start:prod": "pm2 start ecosystem.config.cjs --env production",
     "pm2:save": "pm2 save",
     "stop:prod": "pm2 stop cisco-finance-server",
