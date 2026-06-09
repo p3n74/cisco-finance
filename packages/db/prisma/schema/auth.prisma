@@ -47,6 +47,7 @@ model AccountEntry {
   archivedAt    DateTime?
   // Link to cashflow entry when verified
   cashflowEntry CashflowEntry?
+  cashflowLinks CashflowAccountEntryLink[]
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
@@ -73,6 +74,7 @@ model CashflowEntry {
   // Reference to the account entry this was verified from
   accountEntryId      String?             @unique
   accountEntry        AccountEntry?       @relation(fields: [accountEntryId], references: [id], onDelete: SetNull)
+  accountLinks        CashflowAccountEntryLink[]
   receipts            Receipt[]
   receiptSubmissions  ReceiptSubmission[]
   budgetItemExpenses  BudgetItemExpense[]
@@ -86,6 +88,24 @@ model CashflowEntry {
   @@index([category])
   @@index([isActive])
   @@map("cashflow_entry")
+}
+
+/// Link table for grouped verification:
+/// multiple account entries can map to one cashflow entry,
+/// while each account entry can belong to only one cashflow entry link.
+model CashflowAccountEntryLink {
+  id             String        @id @default(cuid())
+  cashflowEntryId String
+  cashflowEntry  CashflowEntry @relation(fields: [cashflowEntryId], references: [id], onDelete: Cascade)
+  accountEntryId String        @unique
+  accountEntry   AccountEntry  @relation(fields: [accountEntryId], references: [id], onDelete: Cascade)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@unique([cashflowEntryId, accountEntryId])
+  @@index([cashflowEntryId])
+  @@index([accountEntryId])
+  @@map("cashflow_account_entry_link")
 }
 
 /// Line-level breakdown of a single cashflow entry.

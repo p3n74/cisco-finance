@@ -35,6 +35,34 @@ type AccountEntryListFilterInput = {
 	dateSingle?: string;
 };
 
+const accountEntryCashflowInclude = {
+	cashflowEntry: { select: { id: true, description: true } },
+	cashflowLinks: {
+		select: {
+			cashflowEntry: { select: { id: true, description: true } },
+		},
+		take: 1,
+	},
+} as const;
+
+const unverifiedAccountEntryWhere = {
+	isActive: true,
+	cashflowEntry: null,
+	cashflowLinks: { none: {} },
+} as const;
+
+function resolveAccountEntryVerification(entry: {
+	cashflowEntry: { id: string; description: string } | null;
+	cashflowLinks: { cashflowEntry: { id: string; description: string } }[];
+}) {
+	const cashflowEntry =
+		entry.cashflowEntry ?? entry.cashflowLinks[0]?.cashflowEntry ?? null;
+	return {
+		isVerified: cashflowEntry != null,
+		cashflowEntry,
+	};
+}
+
 function buildAccountEntryWhereParts(
 	input: AccountEntryListFilterInput,
 ): object[] {
@@ -56,9 +84,14 @@ function buildAccountEntryWhereParts(
 
 	if (input.statusFilter !== "all") {
 		if (input.statusFilter === "verified") {
-			whereParts.push({ cashflowEntry: { isNot: null } });
+			whereParts.push({
+				OR: [
+					{ cashflowEntry: { isNot: null } },
+					{ cashflowLinks: { some: {} } },
+				],
+			});
 		} else if (input.statusFilter === "unverified") {
-			whereParts.push({ cashflowEntry: null, isActive: true });
+			whereParts.push(unverifiedAccountEntryWhere);
 		} else if (input.statusFilter === "archived") {
 			whereParts.push({ isActive: false });
 		}
@@ -228,16 +261,10 @@ export const appRouter = router({
 					where: { cashflowEntryId: null },
 				}),
 				ctx.prisma.accountEntry.count({
-					where: {
-						isActive: true,
-						cashflowEntry: null,
-					},
+					where: unverifiedAccountEntryWhere,
 				}),
 				ctx.prisma.accountEntry.aggregate({
-					where: {
-						isActive: true,
-						cashflowEntry: null,
-					},
+					where: unverifiedAccountEntryWhere,
 					_sum: { amount: true },
 				}),
 				ctx.prisma.activityLog.count({
@@ -1134,29 +1161,28 @@ export const appRouter = router({
 					take: limit + 1,
 					...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
 					orderBy: [{ date: "desc" }, { id: "desc" }],
-					include: {
-						cashflowEntry: {
-							select: { id: true, description: true },
-						},
-					},
+					include: accountEntryCashflowInclude,
 				});
 				const nextCursor =
 					entries.length > limit ? entries[limit - 1].id : null;
 				const items = entries.slice(0, limit);
 				return {
-					items: items.map((entry) => ({
-						id: entry.id,
-						date: entry.date,
-						description: entry.description,
-						account: entry.account,
-						amount: Number(entry.amount),
-						currency: entry.currency,
-						notes: entry.notes,
-						isActive: entry.isActive,
-						archivedAt: entry.archivedAt,
-						isVerified: !!entry.cashflowEntry,
-						cashflowEntry: entry.cashflowEntry,
-					})),
+					items: items.map((entry) => {
+						const verification = resolveAccountEntryVerification(entry);
+						return {
+							id: entry.id,
+							date: entry.date,
+							description: entry.description,
+							account: entry.account,
+							amount: Number(entry.amount),
+							currency: entry.currency,
+							notes: entry.notes,
+							isActive: entry.isActive,
+							archivedAt: entry.archivedAt,
+							isVerified: verification.isVerified,
+							cashflowEntry: verification.cashflowEntry,
+						};
+					}),
 					nextCursor,
 				};
 			}),
@@ -1200,30 +1226,29 @@ export const appRouter = router({
 					orderBy,
 					skip: input.offset,
 					take: input.limit + 1,
-					include: {
-						cashflowEntry: {
-							select: { id: true, description: true },
-						},
-					},
+					include: accountEntryCashflowInclude,
 				});
 
 				const hasMore = entries.length > input.limit;
 				const items = entries.slice(0, input.limit);
 
 				return {
-					items: items.map((entry) => ({
-						id: entry.id,
-						date: entry.date,
-						description: entry.description,
-						account: entry.account,
-						amount: Number(entry.amount),
-						currency: entry.currency,
-						notes: entry.notes,
-						isActive: entry.isActive,
-						archivedAt: entry.archivedAt,
-						isVerified: !!entry.cashflowEntry,
-						cashflowEntry: entry.cashflowEntry,
-					})),
+					items: items.map((entry) => {
+						const verification = resolveAccountEntryVerification(entry);
+						return {
+							id: entry.id,
+							date: entry.date,
+							description: entry.description,
+							account: entry.account,
+							amount: Number(entry.amount),
+							currency: entry.currency,
+							notes: entry.notes,
+							isActive: entry.isActive,
+							archivedAt: entry.archivedAt,
+							isVerified: verification.isVerified,
+							cashflowEntry: verification.cashflowEntry,
+						};
+					}),
 					hasMore,
 				};
 			}),
@@ -1262,11 +1287,7 @@ export const appRouter = router({
 					where,
 					orderBy,
 					take: ACCOUNT_LEDGER_EXPORT_MAX + 1,
-					include: {
-						cashflowEntry: {
-							select: { id: true, description: true },
-						},
-					},
+					include: accountEntryCashflowInclude,
 				});
 
 				if (entries.length > ACCOUNT_LEDGER_EXPORT_MAX) {
@@ -1298,29 +1319,29 @@ export const appRouter = router({
 				}
 
 				return {
-					items: entries.map((entry) => ({
-						id: entry.id,
-						date: entry.date,
-						description: entry.description,
-						account: entry.account,
-						amount: Number(entry.amount),
-						currency: entry.currency,
-						notes: entry.notes,
-						isActive: entry.isActive,
-						archivedAt: entry.archivedAt,
-						isVerified: !!entry.cashflowEntry,
-						cashflowEntry: entry.cashflowEntry,
-					})),
+					items: entries.map((entry) => {
+						const verification = resolveAccountEntryVerification(entry);
+						return {
+							id: entry.id,
+							date: entry.date,
+							description: entry.description,
+							account: entry.account,
+							amount: Number(entry.amount),
+							currency: entry.currency,
+							notes: entry.notes,
+							isActive: entry.isActive,
+							archivedAt: entry.archivedAt,
+							isVerified: verification.isVerified,
+							cashflowEntry: verification.cashflowEntry,
+						};
+					}),
 					startingBalance,
 					endingBalance,
 				};
 			}),
 		listUnverified: whitelistedProcedure.query(async ({ ctx }) => {
 			const entries = await ctx.prisma.accountEntry.findMany({
-				where: {
-					isActive: true,
-					cashflowEntry: null, // Not yet verified
-				},
+				where: unverifiedAccountEntryWhere,
 				orderBy: {
 					date: "desc",
 				},
@@ -1431,10 +1452,13 @@ export const appRouter = router({
 			.mutation(async ({ ctx, input }) => {
 				const entry = await ctx.prisma.accountEntry.findUnique({
 					where: { id: input.id },
-					include: { cashflowEntry: true },
+					include: {
+						cashflowEntry: true,
+						cashflowLinks: { select: { id: true }, take: 1 },
+					},
 				});
 
-				if (entry?.cashflowEntry) {
+				if (entry?.cashflowEntry || (entry?.cashflowLinks.length ?? 0) > 0) {
 					throw new TRPCError({
 						code: "BAD_REQUEST",
 						message:
@@ -2558,6 +2582,13 @@ export const appRouter = router({
 						accountEntry: {
 							select: { id: true, description: true, account: true },
 						},
+					accountLinks: {
+						select: {
+							accountEntry: {
+								select: { id: true, description: true, account: true },
+							},
+						},
+					},
 						lineItems: {
 							select: {
 								id: true,
@@ -2574,6 +2605,12 @@ export const appRouter = router({
 				const items = entries.slice(0, limit);
 				return {
 					items: items.map((entry) => ({
+						linkedAccountEntries: [
+							...(entry.accountEntry ? [entry.accountEntry] : []),
+							...entry.accountLinks
+								.map((link) => link.accountEntry)
+								.filter((linked) => linked.id !== entry.accountEntry?.id),
+						],
 						id: entry.id,
 						date: entry.date,
 						description: entry.description,
@@ -2585,8 +2622,14 @@ export const appRouter = router({
 						archivedAt: entry.archivedAt,
 						receiptsCount:
 							entry.receipts.length + entry.receiptSubmissions.length,
-						accountEntryId: entry.accountEntryId,
-						accountEntry: entry.accountEntry,
+						accountEntryId:
+							entry.accountEntry?.id ??
+							entry.accountLinks[0]?.accountEntry.id ??
+							null,
+						accountEntry:
+							entry.accountEntry ?? entry.accountLinks[0]?.accountEntry ?? null,
+						linkedAccountEntriesCount:
+							(entry.accountEntry ? 1 : 0) + entry.accountLinks.length,
 						lineItems: entry.lineItems.map((item) => ({
 							id: item.id,
 							description: item.description,
@@ -2640,7 +2683,12 @@ export const appRouter = router({
 						);
 					} else if (input.statusFilter === "verified") {
 						(whereParts.AND as object[]).push(
-							{ accountEntryId: { not: null } },
+							{
+								OR: [
+									{ accountEntryId: { not: null } },
+									{ accountLinks: { some: {} } },
+								],
+							},
 							{
 								OR: [
 									{ receipts: { some: {} } },
@@ -2651,6 +2699,7 @@ export const appRouter = router({
 					} else if (input.statusFilter === "manual") {
 						(whereParts.AND as object[]).push(
 							{ accountEntryId: null },
+							{ accountLinks: { none: {} } },
 							{
 								OR: [
 									{ receipts: { some: {} } },
@@ -2692,6 +2741,13 @@ export const appRouter = router({
 						accountEntry: {
 							select: { id: true, description: true, account: true },
 						},
+						accountLinks: {
+							select: {
+								accountEntry: {
+									select: { id: true, description: true, account: true },
+								},
+							},
+						},
 						lineItems: {
 							select: {
 								id: true,
@@ -2709,6 +2765,12 @@ export const appRouter = router({
 
 				return {
 					items: items.map((entry) => ({
+						linkedAccountEntries: [
+							...(entry.accountEntry ? [entry.accountEntry] : []),
+							...entry.accountLinks
+								.map((link) => link.accountEntry)
+								.filter((linked) => linked.id !== entry.accountEntry?.id),
+						],
 						id: entry.id,
 						date: entry.date,
 						description: entry.description,
@@ -2720,8 +2782,14 @@ export const appRouter = router({
 						archivedAt: entry.archivedAt,
 						receiptsCount:
 							entry.receipts.length + entry.receiptSubmissions.length,
-						accountEntryId: entry.accountEntryId,
-						accountEntry: entry.accountEntry,
+						accountEntryId:
+							entry.accountEntry?.id ??
+							entry.accountLinks[0]?.accountEntry.id ??
+							null,
+						accountEntry:
+							entry.accountEntry ?? entry.accountLinks[0]?.accountEntry ?? null,
+						linkedAccountEntriesCount:
+							(entry.accountEntry ? 1 : 0) + entry.accountLinks.length,
 						lineItems: entry.lineItems.map((item) => ({
 							id: item.id,
 							description: item.description,
@@ -2872,31 +2940,119 @@ export const appRouter = router({
 					currency: z.string().length(3).optional(),
 					notes: z.string().optional(),
 					accountEntryId: z.string().optional(),
+					accountEntryIds: z.array(z.string()).optional(),
 				}),
 			)
 			.mutation(async ({ ctx, input }) => {
-				const entry = await ctx.prisma.cashflowEntry.create({
-					data: {
-						userId: ctx.session.user.id,
-						date: input.date,
-						description: input.description,
-						category: input.category,
-						amount: input.amount,
-						currency: input.currency ?? "PHP",
-						notes: input.notes,
-						accountEntryId: input.accountEntryId,
-					},
+				const normalizedAccountEntryIds = [
+					...(input.accountEntryIds ?? []),
+					...(input.accountEntryId ? [input.accountEntryId] : []),
+				].filter((id, index, all) => id && all.indexOf(id) === index);
+
+				let finalAmount = input.amount;
+				if (normalizedAccountEntryIds.length > 0) {
+					const accountEntries = await ctx.prisma.accountEntry.findMany({
+						where: {
+							id: { in: normalizedAccountEntryIds },
+							isActive: true,
+						},
+						select: {
+							id: true,
+							account: true,
+							amount: true,
+							cashflowEntry: { select: { id: true } },
+							cashflowLinks: {
+								select: { id: true },
+								take: 1,
+							},
+						},
+					});
+					if (accountEntries.length !== normalizedAccountEntryIds.length) {
+						throw new TRPCError({
+							code: "BAD_REQUEST",
+							message: "One or more selected account entries were not found.",
+						});
+					}
+
+					const alreadyLinked = accountEntries.filter(
+						(entry) => entry.cashflowEntry != null || entry.cashflowLinks.length > 0,
+					);
+					if (alreadyLinked.length > 0) {
+						throw new TRPCError({
+							code: "BAD_REQUEST",
+							message: "One or more selected account entries are already verified.",
+						});
+					}
+
+					const expectedAccount = accountEntries[0]?.account;
+					if (
+						accountEntries.some((entry) => entry.account !== expectedAccount)
+					) {
+						throw new TRPCError({
+							code: "BAD_REQUEST",
+							message:
+								"Grouped verification requires all transactions to be from the same account.",
+						});
+					}
+					const expectedSign = Number(accountEntries[0]?.amount ?? 0) >= 0 ? 1 : -1;
+					if (
+						accountEntries.some(
+							(entry) => (Number(entry.amount) >= 0 ? 1 : -1) !== expectedSign,
+						)
+					) {
+						throw new TRPCError({
+							code: "BAD_REQUEST",
+							message:
+								"Grouped verification requires all transactions to have the same sign.",
+						});
+					}
+					finalAmount = accountEntries.reduce(
+						(sum, entry) => sum + Number(entry.amount),
+						0,
+					);
+				}
+
+				const entry = await ctx.prisma.$transaction(async (tx) => {
+					const created = await tx.cashflowEntry.create({
+						data: {
+							userId: ctx.session.user.id,
+							date: input.date,
+							description: input.description,
+							category: input.category,
+							amount: finalAmount,
+							currency: input.currency ?? "PHP",
+							notes: input.notes,
+							accountEntryId:
+								normalizedAccountEntryIds.length === 1
+									? normalizedAccountEntryIds[0]
+									: undefined,
+						},
+					});
+
+					if (normalizedAccountEntryIds.length > 0) {
+						await tx.cashflowAccountEntryLink.createMany({
+							data: normalizedAccountEntryIds.map((accountEntryId) => ({
+								cashflowEntryId: created.id,
+								accountEntryId,
+							})),
+						});
+					}
+					return created;
 				});
 
-				const action = input.accountEntryId ? "verified" : "created";
+				const action = normalizedAccountEntryIds.length > 0 ? "verified" : "created";
 				await logActivity(
 					ctx.prisma,
 					ctx.session.user.id,
 					action,
 					"cashflow_entry",
-					`${action} transaction "${input.description}" for ${input.amount >= 0 ? "+" : ""}${input.amount}`,
+					`${action} transaction "${input.description}" for ${finalAmount >= 0 ? "+" : ""}${finalAmount}`,
 					entry.id,
-					{ amount: input.amount, category: input.category },
+					{
+						amount: finalAmount,
+						category: input.category,
+						accountEntryIds: normalizedAccountEntryIds,
+					},
 					ctx.ws,
 				);
 
@@ -2906,11 +3062,11 @@ export const appRouter = router({
 					action: "created",
 					entityId: entry.id,
 				});
-				if (input.accountEntryId) {
+				for (const accountEntryId of normalizedAccountEntryIds) {
 					ctx.ws?.emitToUser(ctx.session.user.id, {
 						event: WS_EVENTS.ACCOUNT_ENTRY_UPDATED,
 						action: "updated",
-						entityId: input.accountEntryId,
+						entityId: accountEntryId,
 					});
 				}
 				ctx.ws?.emitToUser(ctx.session.user.id, {
@@ -2931,7 +3087,11 @@ export const appRouter = router({
 			.mutation(async ({ ctx, input }) => {
 				const entry = await ctx.prisma.cashflowEntry.findUnique({
 					where: { id: input.id },
-					select: { id: true, accountEntryId: true },
+					select: {
+						id: true,
+						accountEntryId: true,
+						accountLinks: { select: { accountEntryId: true } },
+					},
 				});
 				if (!entry) {
 					throw new TRPCError({
@@ -2948,17 +3108,23 @@ export const appRouter = router({
 					},
 				});
 
-				// Keep linked account entry (RBA) in sync: update its description to match
-				if (entry.accountEntryId) {
+				// Keep linked account entries in sync: update descriptions to match
+				const linkedAccountEntryIds = [
+					...(entry.accountEntryId ? [entry.accountEntryId] : []),
+					...entry.accountLinks.map((link) => link.accountEntryId),
+				].filter((id, index, all) => all.indexOf(id) === index);
+				if (linkedAccountEntryIds.length > 0) {
 					await ctx.prisma.accountEntry.updateMany({
-						where: { id: entry.accountEntryId },
+						where: { id: { in: linkedAccountEntryIds } },
 						data: { description: input.description },
 					});
-					ctx.ws?.emitToUser(ctx.session.user.id, {
-						event: WS_EVENTS.ACCOUNT_ENTRY_UPDATED,
-						action: "updated",
-						entityId: entry.accountEntryId,
-					});
+					for (const accountEntryId of linkedAccountEntryIds) {
+						ctx.ws?.emitToUser(ctx.session.user.id, {
+							event: WS_EVENTS.ACCOUNT_ENTRY_UPDATED,
+							action: "updated",
+							entityId: accountEntryId,
+						});
+					}
 				}
 
 				await logActivity(
@@ -2988,23 +3154,40 @@ export const appRouter = router({
 		resyncAmountsFromAccounts: cashflowEditorProcedure.mutation(
 			async ({ ctx }) => {
 				const linked = await ctx.prisma.cashflowEntry.findMany({
-					where: { accountEntryId: { not: null }, isActive: true },
+					where: {
+						isActive: true,
+						OR: [{ accountEntryId: { not: null } }, { accountLinks: { some: {} } }],
+					},
 					select: {
 						id: true,
 						amount: true,
 						description: true,
 						accountEntry: { select: { id: true, amount: true } },
+						accountLinks: {
+							select: {
+								accountEntry: { select: { id: true, amount: true } },
+							},
+						},
 					},
 				});
 				const updatedIds: string[] = [];
 				for (const row of linked) {
-					if (!row.accountEntry) continue;
 					const cfAmount = Number(row.amount);
-					const aeAmount = Number(row.accountEntry.amount);
+					const linkedAccountEntries = [
+						...(row.accountEntry ? [row.accountEntry] : []),
+						...row.accountLinks
+							.map((link) => link.accountEntry)
+							.filter((entry) => entry.id !== row.accountEntry?.id),
+					];
+					if (linkedAccountEntries.length === 0) continue;
+					const aeAmount = linkedAccountEntries.reduce(
+						(sum, entry) => sum + Number(entry.amount),
+						0,
+					);
 					if (cfAmount === aeAmount) continue;
 					await ctx.prisma.cashflowEntry.update({
 						where: { id: row.id },
-						data: { amount: row.accountEntry.amount },
+						data: { amount: aeAmount },
 					});
 					updatedIds.push(row.id);
 					ctx.ws?.emitToUser(ctx.session.user.id, {

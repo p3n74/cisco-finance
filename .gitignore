@@ -48,3 +48,6 @@ coverage
 .cache
 tmp
 temp
+
+# Cursor / Winnow local agent tooling
+.winnow
